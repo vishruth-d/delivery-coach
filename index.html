@@ -256,7 +256,7 @@ const FILLER_WORDS = ["um","uh","like","right","yeah","er","erm"];
 
 let state = {entries:[],settings:{groqKey:"",notifEnabled:false,notifTime:"09:00",customQuestions:[]}};
 let recording = {active:false,timer:0,transcript:"",interim:"",pauses:[],lastSpeech:0,resultIndex:0};
-let mediaRecorder=null, stream=null, recognition=null, chunks=[], timerInterval=null, videoUrl=null;
+let mediaRecorder=null, stream=null, recognition=null, chunks=[], audioChunks=[], audioRecorder=null, timerInterval=null, videoUrl=null;
 let currentAnalysis=null, manualScores={body:null,energy:null,confidence:null};
 
 // ═══════════════════════════════════════
@@ -385,7 +385,7 @@ function renderHome(){
 async function startRecording(){
   document.getElementById('camera-error').style.display='none';
   recording={active:true,timer:0,transcript:"",interim:"",pauses:[],lastSpeech:Date.now(),resultIndex:0};
-  chunks=[];videoUrl=null;
+  chunks=[];audioChunks=[];videoUrl=null;
 
   try{
     stream=await navigator.mediaDevices.getUserMedia({
@@ -416,6 +416,17 @@ async function startRecording(){
     document.getElementById('playback').src=videoUrl;
   };
   mediaRecorder.start(1000);
+
+  // Separate audio recorder for Whisper transcription
+  try{
+    const audioStream=new MediaStream(stream.getAudioTracks());
+    const audioMimes=["audio/webm;codecs=opus","audio/webm","audio/mp4",""];
+    let audioMime="";
+    for(const m of audioMimes){if(!m||MediaRecorder.isTypeSupported(m)){audioMime=m;break}}
+    audioRecorder=new MediaRecorder(audioStream,audioMime?{mimeType:audioMime}:{});
+    audioRecorder.ondataavailable=e=>{if(e.data.size>0)audioChunks.push(e.data)};
+    audioRecorder.start(1000);
+  }catch(e){audioRecorder=null}
 
   // Speech recognition
   const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
@@ -470,6 +481,7 @@ function stopRecording(){
   recording.active=false;
   clearInterval(timerInterval);
   if(recognition)try{recognition.stop()}catch(e){}
+  if(audioRecorder&&audioRecorder.state!=='inactive')audioRecorder.stop();
   if(mediaRecorder&&mediaRecorder.state!=='inactive')mediaRecorder.stop();
   if(stream)stream.getTracks().forEach(t=>t.stop());
 
@@ -478,6 +490,7 @@ function stopRecording(){
   manualScores={body:null,energy:null,confidence:null};
   document.getElementById('session-notes').value='';
 
+  // Build initial analysis from Web Speech API transcript
   if(text.trim().length>10){
     const fillers=countFillers(text);
     const trailing=analyzeTrailing(text);
@@ -490,9 +503,10 @@ function stopRecording(){
   renderResults();
   showScreen('results');
 
-  // Groq analysis if key exists
-  if(currentAnalysis&&state.settings.groqKey){
-    runGroqAnalysis(text,dur);
+  // If Groq key exists, use Whisper for better transcript then run LLM analysis
+  if(state.settings.groqKey&&audioChunks.length>0){
+    const audioBlob=new Blob(audioChunks,{type:audioRecorder?.mimeType||'audio/webm'});
+    runWhisperTranscription(audioBlob,dur);
   }
 }
 
@@ -566,7 +580,80 @@ function setScore(key,val){
 }
 
 // ═══════════════════════════════════════
-// GROQ AI ANALYSIS
+// WHISPER TRANSCRIPTION
+// ═══════════════════════════════════════
+async function runWhisperTranscription(audioBlob,duration){
+  const el=document.getElementById('groq-analysis');
+  el.style.display='block';
+  el.innerHTML=`<div style="padding:12px;background:rgba(74,222,128,0.06);border:1px solid rgba(74,222,128,0.15);border-radius:10px;font-size:12px;color:var(--green)">🎙️ Transcribing with Whisper...</div>`;
+
+  try{
+    const formData=new FormData();
+    // Whisper needs a file extension — rename blob
+    const audioFile=new File([audioBlob],'audio.webm',{type:audioBlob.type||'audio/webm'});
+    formData.append('file',audioFile);
+    formData.append('model','whisper-large-v3-turbo');
+    formData.append('language','en');
+    formData.append('response_format','verbose_json');
+    // Prompt to encourage verbatim transcription with fillers
+    formData.append('prompt','Transcribe exactly what is said including all filler words like um, uh, er, erm, like, you know, sort of, kind of, I guess, basically, right, yeah, so yeah. Do not clean up or remove any hesitations.');
+
+    const res=await fetch('https://api.groq.com/openai/v1/audio/transcriptions',{
+      method:'POST',
+      headers:{'Authorization':`Bearer ${state.settings.groqKey}`},
+      body:formData
+    });
+
+    if(!res.ok){
+      const err=await res.text();
+      throw new Error(err);
+    }
+
+    const data=await res.json();
+    const whisperText=data.text||'';
+
+    if(whisperText.trim().length>10){
+      // Re-run analysis with Whisper transcript (much better filler detection)
+      const fillers=countFillers(whisperText);
+      const trailing=analyzeTrailing(whisperText);
+      const words=whisperText.trim().split(/\s+/).filter(Boolean).length;
+      const wpm=duration>0?(words/duration)*60:0;
+      currentAnalysis={fillers,trailing,words,wpm,duration,
+        pauses:recording.pauses,tooLong:duration>120,highlighted:highlightFillers(whisperText),raw:whisperText,
+        whisperUsed:true};
+
+      // Re-render stats with Whisper data
+      renderResults();
+      // Show whisper badge
+      const badge=document.getElementById('auto-analysis');
+      if(badge){
+        const existing=badge.querySelector('.whisper-badge');
+        if(!existing){
+          const b=document.createElement('div');
+          b.className='whisper-badge';
+          b.style.cssText='font-size:9px;padding:3px 8px;border-radius:10px;background:rgba(74,222,128,0.1);color:var(--green);border:1px solid rgba(74,222,128,0.2);display:inline-block;margin-bottom:12px';
+          b.textContent='✓ WHISPER TRANSCRIPT — FILLER WORDS INCLUDED';
+          badge.insertBefore(b,badge.children[1]);
+        }
+      }
+    }
+
+    // Now run LLM coaching analysis on the better transcript
+    el.innerHTML=`<div style="padding:12px;background:rgba(74,222,128,0.06);border:1px solid rgba(74,222,128,0.15);border-radius:10px;font-size:12px;color:var(--green)">🧠 Running AI coaching analysis...</div>`;
+    await runGroqAnalysis(whisperText||recording.transcript,duration);
+
+  }catch(e){
+    el.innerHTML=`<div style="padding:12px;background:rgba(255,80,80,0.08);border:1px solid rgba(255,80,80,0.2);border-radius:10px;font-size:11px;color:#ff8888">
+      Whisper transcription failed: ${e.message?.substring(0,100)||'Check API key'}</div>`;
+    // Fallback to Web Speech transcript for LLM analysis
+    if(currentAnalysis){
+      await runGroqAnalysis(recording.transcript,duration);
+    }
+  }
+}
+
+// ═══════════════════════════════════════
+// GROQ AI COACHING ANALYSIS
 // ═══════════════════════════════════════
 async function runGroqAnalysis(text,duration){
   const el=document.getElementById('groq-analysis');
