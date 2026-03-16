@@ -1,4 +1,4 @@
-const CACHE_NAME = 'delivery-coach-v5';
+const CACHE_NAME = 'delivery-coach-v7';
 const ASSETS = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', e => {

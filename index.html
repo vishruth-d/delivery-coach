@@ -86,7 +86,7 @@ details summary{font-size:11px;color:#555;cursor:pointer;margin-bottom:8px}
 <div id="record" class="screen">
 <div id="rec-screen" style="position:fixed;top:0;left:0;right:0;bottom:0;background:#000;display:flex;flex-direction:column">
   <div style="flex:1;position:relative;overflow:hidden;min-height:0">
-    <video id="preview" autoplay playsinline muted style="position:absolute;top:0;left:0;width:100%;height:100%;object-fit:cover;transform:scaleX(-1)"></video>
+    <video id="preview" autoplay playsinline muted style="position:absolute;top:0;left:0;width:100%;height:100%;object-fit:contain;background:#000;transform:scaleX(-1)"></video>
     <div style="position:absolute;top:0;left:0;right:0;padding:max(env(safe-area-inset-top),20px) 16px 20px;background:linear-gradient(180deg,rgba(0,0,0,0.7),transparent);z-index:2">
       <div style="display:flex;justify-content:space-between;align-items:center">
         <div class="pill" style="background:rgba(255,68,68,0.15);color:#ff4444;border:1px solid rgba(255,68,68,0.3)">
@@ -114,10 +114,7 @@ details summary{font-size:11px;color:#555;cursor:pointer;margin-bottom:8px}
     <h2 style="font-size:20px;font-weight:800;color:#fff">Results</h2>
     <span id="result-time" style="font-size:12px;color:#555"></span>
   </div>
-  <div id="video-container" style="margin-bottom:16px;border-radius:12px;overflow:hidden">
-    <video id="playback" controls playsinline style="width:100%;border-radius:12px;transform:scaleX(-1)"></video>
-    <div style="font-size:10px;color:#444;text-align:center;margin-top:6px">Watch back — check body language, posture, eye contact</div>
-  </div>
+  <div id="video-container" style="margin-bottom:16px;border-radius:12px;overflow:hidden"></div>
   <div id="auto-analysis" class="card" style="display:none">
     <div class="label">SPEECH ANALYSIS</div>
     <div id="stats-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px"></div>
@@ -251,8 +248,19 @@ const DEFAULT_QUESTIONS = [
 
 const FILLER_PHRASES = ["sort of","kind of","i guess","you know","i think","i mean",
   "so yeah","basically","literally","to be honest","at the end of the day",
-  "if that makes sense","does that make sense","and stuff","or whatever"];
-const FILLER_WORDS = ["um","uh","like","right","yeah","er","erm"];
+  "if that makes sense","does that make sense","and stuff","or whatever",
+  "you know what i mean","in that sense","i suppose","to be fair",
+  "and whatnot","or something","and things like that","things like that",
+  "stuff like that","something like that","that kind of thing","that sort of thing",
+  "in a way","in a sense","as it were","if you will","so to speak",
+  "i would say","i feel like","it's like","and everything","or anything",
+  "and all that","at this point","going forward","to be perfectly honest",
+  "the thing is","i don't know","you know what"];
+const FILLER_WORDS = ["um","uh","like","right","yeah","er","erm","ah","oh",
+  "well","so","just","actually","really","honestly","obviously","clearly",
+  "definitely","certainly","probably","maybe","perhaps","anyway","anyways"];
+// Words that are only fillers in certain contexts — flag but weight lower
+const SOFT_FILLERS = ["just","actually","really","so","well","obviously","clearly","definitely","probably","maybe"];
 
 let state = {entries:[],settings:{groqKey:"",notifEnabled:false,notifTime:"09:00",customQuestions:[]}};
 let recording = {active:false,timer:0,transcript:"",interim:"",pauses:[],lastSpeech:0,resultIndex:0};
@@ -301,18 +309,46 @@ function pickQuestion(){
 
 function countFillers(text){
   const lower=text.toLowerCase();
-  let count=0;const found=[];
+  let hardCount=0,softCount=0;
+  const hardFound=[],softFound=[];
+
+  // Hard fillers — always a filler
   FILLER_PHRASES.forEach(f=>{
     const r=new RegExp(`\\b${f.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}\\b`,'gi');
     const m=lower.match(r);
-    if(m){count+=m.length;m.forEach(()=>found.push(f))}
+    if(m){hardCount+=m.length;m.forEach(()=>hardFound.push(f))}
   });
-  FILLER_WORDS.forEach(f=>{
-    const r=new RegExp(`(?:^|[\\s,.])(${f})(?=[\\s,.]|$)`,'gi');
+
+  // Separate hard filler words (um, uh, er, erm, ah) from contextual ones
+  const HARD_FILLER_WORDS=["um","uh","er","erm","ah"];
+  HARD_FILLER_WORDS.forEach(f=>{
+    const r=new RegExp(`(?:^|[\\s,.!?])(${f})(?=[\\s,.!?]|$)`,'gi');
     const m=lower.match(r);
-    if(m){count+=m.length;m.forEach(()=>found.push(f))}
+    if(m){hardCount+=m.length;m.forEach(()=>hardFound.push(f))}
   });
-  return{count,found};
+
+  // "like" as filler — only when not preceded by "would/looks/feel/sound/taste/seems"
+  const likeTotal=(lower.match(/(?:^|[\s,.])(like)(?=[\s,.]|$)/gi)||[]).length;
+  const likeReal=(lower.match(/\b(looks like|feel like|would like|sounds like|seems like|felt like|tastes like|smells like)\b/gi)||[]).length;
+  const likeFiller=Math.max(0,likeTotal-likeReal);
+  if(likeFiller>0){hardCount+=likeFiller;for(let i=0;i<likeFiller;i++)hardFound.push('like')}
+
+  // Soft fillers — contextual, counted separately
+  SOFT_FILLERS.forEach(f=>{
+    if(f==='like')return; // handled above
+    const r=new RegExp(`(?:^|[\\s,.!?])(${f})(?=[\\s,.!?]|$)`,'gi');
+    const m=lower.match(r);
+    if(m){softCount+=m.length;m.forEach(()=>softFound.push(f))}
+  });
+
+  // Detect repeated words (stuttering) — "I I", "the the", "and and"
+  const repeatMatches=lower.match(/\b(\w{2,})\s+\1\b/g);
+  let repeats=0;
+  if(repeatMatches){repeats=repeatMatches.length;hardCount+=repeats;repeatMatches.forEach(m=>hardFound.push('repeat: '+m.trim()))}
+
+  // Detect false starts — "I was going to — I mean" patterns captured by phrase fillers above
+
+  return{count:hardCount,softCount,found:hardFound,softFound,repeats,total:hardCount+softCount};
 }
 
 function analyzeTrailing(text){
@@ -320,8 +356,9 @@ function analyzeTrailing(text){
   if(words.length<5)return{trailing:false};
   const last=words.slice(-Math.max(8,Math.floor(words.length*0.15))).join(' ');
   const{count}=countFillers(last);
-  const weak=/\b(so yeah|you know|kind of|i guess|that's it|yeah|and stuff)\s*\.?\s*$/i.test(text.trim());
-  return{trailing:count>=2||weak};
+  const weak=/\b(so yeah|you know|kind of|i guess|that's it|yeah|and stuff|or something|so|anyway|but yeah|and yeah)\s*\.?\s*$/i.test(text.trim());
+  const trailingUm=/\b(um|uh|er|erm|ah)\s*\.?\s*$/i.test(text.trim());
+  return{trailing:count>=2||weak||trailingUm};
 }
 
 function highlightFillers(text){
@@ -389,7 +426,7 @@ async function startRecording(){
 
   try{
     stream=await navigator.mediaDevices.getUserMedia({
-      video:{facingMode:"user",width:{ideal:720},height:{ideal:1280}},audio:true
+      video:{facingMode:"user",width:{ideal:1280},height:{ideal:720},zoom:1.0},audio:true
     });
   }catch(e){
     document.getElementById('camera-error').textContent=e.message||'Camera access denied. Check browser settings.';
@@ -413,7 +450,13 @@ async function startRecording(){
   mediaRecorder.onstop=()=>{
     const blob=new Blob(chunks,{type:mediaRecorder.mimeType||'video/webm'});
     videoUrl=URL.createObjectURL(blob);
-    document.getElementById('playback').src=videoUrl;
+    const container=document.getElementById('video-container');
+    if(container){
+      container.style.display='block';
+      container.innerHTML=`
+        <video controls playsinline src="${videoUrl}" style="width:100%;border-radius:12px;transform:scaleX(-1)"></video>
+        <div style="font-size:10px;color:#444;text-align:center;margin-top:6px">Watch back — check body language, posture, eye contact</div>`;
+    }
   };
   mediaRecorder.start(1000);
 
@@ -517,7 +560,17 @@ function renderResults(){
   const h=todayHabit();
   document.getElementById('result-time').textContent=formatTime(recording.timer);
   document.getElementById('log-btn').style.background=h.color;
-  document.getElementById('video-container').style.display=videoUrl?'block':'none';
+  document.getElementById('video-container').style.display='block';
+  if(!videoUrl){
+    document.getElementById('video-container').innerHTML=`
+      <div style="padding:40px;text-align:center;background:rgba(255,255,255,0.03);border-radius:12px">
+        <div style="font-size:12px;color:#555">Processing video...</div>
+      </div>`;
+  }else{
+    document.getElementById('video-container').innerHTML=`
+      <video id="playback" controls playsinline src="${videoUrl}" style="width:100%;border-radius:12px;transform:scaleX(-1)"></video>
+      <div style="font-size:10px;color:#444;text-align:center;margin-top:6px">Watch back — check body language, posture, eye contact</div>`;
+  }
 
   if(currentAnalysis){
     const a=currentAnalysis;
@@ -525,23 +578,39 @@ function renderResults(){
     document.getElementById('no-transcript').style.display='none';
 
     const fc=a.fillers.count;
+    const sc=a.fillers.softCount||0;
     const fcColor=fc>5?'var(--red)':fc>2?'var(--orange)':'var(--green)';
     const ec=a.trailing.trailing?'var(--red)':'var(--green)';
     document.getElementById('stats-grid').innerHTML=`
-      <div class="stat-box"><div class="stat-num" style="color:${fcColor}">${fc}</div><div class="stat-label">FILLERS</div></div>
+      <div class="stat-box"><div class="stat-num" style="color:${fcColor}">${fc}</div><div class="stat-label">HARD FILLERS</div></div>
+      <div class="stat-box"><div class="stat-num" style="color:${sc>8?'var(--orange)':'var(--dim)'}">${sc}</div><div class="stat-label">SOFT FILLERS</div></div>
       <div class="stat-box"><div class="stat-num">${a.words}</div><div class="stat-label">WORDS</div></div>
       <div class="stat-box"><div class="stat-num" style="color:${ec}">${a.trailing.trailing?'Weak':'Clean'}</div><div class="stat-label">ENDING</div></div>
+      <div class="stat-box"><div class="stat-num">${Math.round(a.wpm)}</div><div class="stat-label">WPM</div></div>
       <div class="stat-box"><div class="stat-num">${a.pauses.length}</div><div class="stat-label">PAUSES</div></div>`;
 
-    if(fc>0){
-      const unique=[...new Set(a.fillers.found)];
-      document.getElementById('filler-breakdown').style.display='block';
-      document.getElementById('filler-breakdown').innerHTML=`
-        <div style="font-size:11px;color:#888;margin-bottom:6px">Fillers found:</div>
-        <div style="display:flex;gap:6px;flex-wrap:wrap">${unique.map(f=>{
-          const c=a.fillers.found.filter(x=>x===f).length;
-          return `<span class="pill" style="background:rgba(255,163,107,0.12);color:var(--orange);border:1px solid rgba(255,163,107,0.25);font-size:11px">${f}${c>1?' ×'+c:''}</span>`;
+    const allFound=[...(a.fillers.found||[])];
+    const allSoft=[...(a.fillers.softFound||[])];
+    if(allFound.length>0||allSoft.length>0){
+      const uniqueHard=[...new Set(allFound)];
+      const uniqueSoft=[...new Set(allSoft)];
+      let html='';
+      if(uniqueHard.length>0){
+        html+=`<div style="font-size:11px;color:#ff8888;margin-bottom:6px;font-weight:700">Hard fillers (cut these):</div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">${uniqueHard.map(f=>{
+          const c=allFound.filter(x=>x===f).length;
+          return `<span class="pill" style="background:rgba(255,107,107,0.15);color:var(--red);border:1px solid rgba(255,107,107,0.3);font-size:11px">${f}${c>1?' ×'+c:''}</span>`;
         }).join('')}</div>`;
+      }
+      if(uniqueSoft.length>0){
+        html+=`<div style="font-size:11px;color:#888;margin-bottom:6px">Soft fillers (watch these):</div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">${uniqueSoft.map(f=>{
+          const c=allSoft.filter(x=>x===f).length;
+          return `<span class="pill" style="background:rgba(255,255,255,0.04);color:var(--dim);border:1px solid rgba(255,255,255,0.1);font-size:11px">${f}${c>1?' ×'+c:''}</span>`;
+        }).join('')}</div>`;
+      }
+      document.getElementById('filler-breakdown').style.display='block';
+      document.getElementById('filler-breakdown').innerHTML=html;
     }else{document.getElementById('filler-breakdown').style.display='none'}
 
     document.getElementById('transcript-view').textContent=a.highlighted;
@@ -592,11 +661,11 @@ async function runWhisperTranscription(audioBlob,duration){
     // Whisper needs a file extension — rename blob
     const audioFile=new File([audioBlob],'audio.webm',{type:audioBlob.type||'audio/webm'});
     formData.append('file',audioFile);
-    formData.append('model','whisper-large-v3-turbo');
+    formData.append('model','whisper-large-v3');
     formData.append('language','en');
     formData.append('response_format','verbose_json');
-    // Prompt to encourage verbatim transcription with fillers
-    formData.append('prompt','Transcribe exactly what is said including all filler words like um, uh, er, erm, like, you know, sort of, kind of, I guess, basically, right, yeah, so yeah. Do not clean up or remove any hesitations.');
+    formData.append('temperature','0');
+    formData.append('prompt','Um, uh, er, erm, like, you know, sort of, kind of, I guess, basically, right, yeah, so yeah, I mean, honestly, actually. Include every um, uh, er, erm, hesitation, false start, and filler word exactly as spoken. Do not clean up speech.');
 
     const res=await fetch('https://api.groq.com/openai/v1/audio/transcriptions',{
       method:'POST',
@@ -665,13 +734,15 @@ async function runGroqAnalysis(text,duration){
       method:'POST',
       headers:{'Content-Type':'application/json','Authorization':`Bearer ${state.settings.groqKey}`},
       body:JSON.stringify({
-        model:'llama-3.1-8b-instant',
-        messages:[{role:'system',content:`You are a speech delivery coach. Analyse this interview practice transcript. Respond ONLY in valid JSON, no markdown, no backticks, no preamble.
+        model:'llama-3.3-70b-versatile',
+        messages:[{role:'system',content:`You are a brutally honest speech delivery coach for interview practice. The transcript below was captured with Whisper and includes all filler words (um, uh, er, like, sort of, kind of, etc).
+
+Analyse the delivery and respond ONLY in valid JSON, no markdown, no backticks, no preamble.
 
 JSON format:
-{"fillers":{"total":N,"missed":["words the speaker used as fillers that aren't obvious"]},"ending":{"strong":true/false,"note":"10 words max"},"repetition":{"score":1-5,"note":"10 words max"},"coaching":"One specific actionable sentence under 20 words"}`},
+{"fillers":{"missed":["any filler words or hedging phrases the automated counter might have missed"]},"ending":{"strong":true/false,"note":"Why in 10 words max"},"repetition":{"score":1,"note":"Did they repeat the same point? 10 words max. 1=very repetitive, 5=no repetition"},"overexplaining":{"score":1,"note":"Did they make the point and stop? 1=rambled, 5=concise"},"confidence":{"score":1,"note":"Did they sound sure of themselves? 1=uncertain, 5=commanding"},"coaching":"One specific, actionable sentence under 20 words. Be direct. No generic advice."}`},
           {role:'user',content:`Transcript (${duration} seconds):\n${text}`}],
-        temperature:0.3,max_tokens:300
+        temperature:0.2,max_tokens:400
       })
     });
 
@@ -688,16 +759,20 @@ JSON format:
     el.innerHTML=`
       <div style="padding:14px;background:rgba(74,222,128,0.06);border:1px solid rgba(74,222,128,0.15);border-radius:10px">
         <div style="display:flex;align-items:center;gap:6px;margin-bottom:10px">
-          <span class="groq-badge">AI ANALYSIS</span>
+          <span class="groq-badge">AI COACHING</span>
         </div>
-        <div style="font-size:13px;color:var(--green);font-weight:700;margin-bottom:10px;line-height:1.5">${result.coaching||''}</div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:11px">
-          <div style="color:#888">Ending: <span style="color:${result.ending?.strong?'var(--green)':'var(--red)'}">${result.ending?.strong?'Strong':'Weak'}</span></div>
-          <div style="color:#888">Repetition: <span style="color:#ccc">${result.repetition?.score||'?'}/5</span></div>
+        <div style="font-size:13px;color:var(--green);font-weight:700;margin-bottom:12px;line-height:1.5">${result.coaching||''}</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:11px">
+          <div style="padding:6px 8px;background:rgba(0,0,0,0.2);border-radius:6px;color:#888">Ending: <span style="color:${result.ending?.strong?'var(--green)':'var(--red)'};font-weight:700">${result.ending?.strong?'Strong':'Weak'}</span></div>
+          <div style="padding:6px 8px;background:rgba(0,0,0,0.2);border-radius:6px;color:#888">Repetition: <span style="color:${(result.repetition?.score||0)>=4?'var(--green)':(result.repetition?.score||0)>=2?'var(--orange)':'var(--red)'};font-weight:700">${result.repetition?.score||'?'}/5</span></div>
+          <div style="padding:6px 8px;background:rgba(0,0,0,0.2);border-radius:6px;color:#888">Conciseness: <span style="color:${(result.overexplaining?.score||0)>=4?'var(--green)':(result.overexplaining?.score||0)>=2?'var(--orange)':'var(--red)'};font-weight:700">${result.overexplaining?.score||'?'}/5</span></div>
+          <div style="padding:6px 8px;background:rgba(0,0,0,0.2);border-radius:6px;color:#888">Confidence: <span style="color:${(result.confidence?.score||0)>=4?'var(--green)':(result.confidence?.score||0)>=2?'var(--orange)':'var(--red)'};font-weight:700">${result.confidence?.score||'?'}/5</span></div>
         </div>
-        ${result.ending?.note?`<div style="font-size:10px;color:#555;margin-top:6px">Ending: ${result.ending.note}</div>`:''}
-        ${result.repetition?.note?`<div style="font-size:10px;color:#555;margin-top:4px">Repetition: ${result.repetition.note}</div>`:''}
-        ${result.fillers?.missed?.length?`<div style="font-size:10px;color:#555;margin-top:4px">Also spotted: ${result.fillers.missed.join(', ')}</div>`:''}
+        ${result.ending?.note?`<div style="font-size:10px;color:#555;margin-top:8px">Ending: ${result.ending.note}</div>`:''}
+        ${result.repetition?.note?`<div style="font-size:10px;color:#555;margin-top:3px">Repetition: ${result.repetition.note}</div>`:''}
+        ${result.overexplaining?.note?`<div style="font-size:10px;color:#555;margin-top:3px">Conciseness: ${result.overexplaining.note}</div>`:''}
+        ${result.confidence?.note?`<div style="font-size:10px;color:#555;margin-top:3px">Confidence: ${result.confidence.note}</div>`:''}
+        ${result.fillers?.missed?.length?`<div style="font-size:10px;color:var(--orange);margin-top:6px">AI also spotted: ${result.fillers.missed.join(', ')}</div>`:''}
       </div>`;
 
     // Store AI result in currentAnalysis
@@ -721,15 +796,20 @@ function logSession(){
     duration:recording.timer,
     analysis:currentAnalysis?{
       fillerCount:currentAnalysis.fillers.count,
+      softFillerCount:currentAnalysis.fillers.softCount||0,
       fillerWords:currentAnalysis.fillers.found,
+      softFillerWords:currentAnalysis.fillers.softFound||[],
       trailedOff:currentAnalysis.trailing.trailing,
       wordCount:currentAnalysis.words,
       wpm:Math.round(currentAnalysis.wpm),
       pauseCount:currentAnalysis.pauses.length,
       tooLong:currentAnalysis.tooLong,
+      whisperUsed:currentAnalysis.whisperUsed||false,
       groqCoaching:currentAnalysis.groq?.coaching||null,
       groqEndingStrong:currentAnalysis.groq?.ending?.strong??null,
-      groqRepetition:currentAnalysis.groq?.repetition?.score||null
+      groqRepetition:currentAnalysis.groq?.repetition?.score||null,
+      groqConciseness:currentAnalysis.groq?.overexplaining?.score||null,
+      groqConfidence:currentAnalysis.groq?.confidence?.score||null
     }:null,
     manualScores:{...manualScores},
     notes:document.getElementById('session-notes').value,
@@ -935,15 +1015,16 @@ function generateExportText(){
   const recent=state.entries.slice(-14);
   recent.forEach(e=>{
     const h=HABITS[e.habitId]||HABITS[0];
-    t+=`${h.emoji} ${e.date} — ${h.name}\n`;
+    t+=`${h.emoji} ${e.date} — ${h.name}${e.analysis?.whisperUsed?' [Whisper]':''}\n`;
     t+=`Q: "${e.question}"\n`;
     t+=`Duration: ${e.duration}s`;
     if(e.analysis){
       t+=` | Words: ${e.analysis.wordCount} | WPM: ${e.analysis.wpm}`;
-      t+=` | Fillers: ${e.analysis.fillerCount}`;
+      t+=`\nHard fillers: ${e.analysis.fillerCount}`;
       if(e.analysis.fillerWords?.length)t+=` (${[...new Set(e.analysis.fillerWords)].join(', ')})`;
-      t+=` | ${e.analysis.trailedOff?'Trailed off':'Landed clean'}`;
-      t+=` | Pauses: ${e.analysis.pauseCount}`;
+      t+=` | Soft fillers: ${e.analysis.softFillerCount||0}`;
+      if(e.analysis.softFillerWords?.length)t+=` (${[...new Set(e.analysis.softFillerWords)].join(', ')})`;
+      t+=`\n${e.analysis.trailedOff?'Trailed off':'Landed clean'} | Pauses: ${e.analysis.pauseCount}`;
     }
     t+="\n";
     if(e.manualScores){
@@ -952,21 +1033,35 @@ function generateExportText(){
       if(s.body)parts.push(`Body: ${s.body}/5`);
       if(s.energy)parts.push(`Energy: ${s.energy}/5`);
       if(s.confidence)parts.push(`Confidence: ${s.confidence}/5`);
-      if(parts.length)t+=parts.join(' | ')+'\n';
+      if(parts.length)t+='Self: '+parts.join(' | ')+'\n';
     }
-    if(e.analysis?.groqCoaching)t+=`AI: ${e.analysis.groqCoaching}\n`;
+    if(e.analysis?.groqCoaching||e.analysis?.groqRepetition){
+      const aiParts=[];
+      if(e.analysis.groqEndingStrong!==null)aiParts.push(`Ending: ${e.analysis.groqEndingStrong?'Strong':'Weak'}`);
+      if(e.analysis.groqRepetition)aiParts.push(`Repetition: ${e.analysis.groqRepetition}/5`);
+      if(e.analysis.groqConciseness)aiParts.push(`Conciseness: ${e.analysis.groqConciseness}/5`);
+      if(e.analysis.groqConfidence)aiParts.push(`AI Confidence: ${e.analysis.groqConfidence}/5`);
+      if(aiParts.length)t+='AI: '+aiParts.join(' | ')+'\n';
+      if(e.analysis.groqCoaching)t+=`Coaching: ${e.analysis.groqCoaching}\n`;
+    }
     if(e.notes)t+=`Notes: ${e.notes}\n`;
+    if(e.transcript)t+=`Transcript: ${e.transcript.substring(0,200)}${e.transcript.length>200?'...':''}\n`;
     t+='\n';
   });
 
   if(state.entries.length>=3){
     const last=state.entries.slice(-7);
     const avgF=(last.reduce((a,e)=>a+(e.analysis?.fillerCount||0),0)/last.length).toFixed(1);
+    const avgSF=(last.reduce((a,e)=>a+(e.analysis?.softFillerCount||0),0)/last.length).toFixed(1);
     const avgD=Math.round(last.reduce((a,e)=>a+(e.duration||0),0)/last.length);
     const trails=last.filter(e=>e.analysis?.trailedOff).length;
+    const avgConf=last.filter(e=>e.analysis?.groqConfidence).length>0?
+      (last.reduce((a,e)=>a+(e.analysis?.groqConfidence||0),0)/last.filter(e=>e.analysis?.groqConfidence).length).toFixed(1):'N/A';
     t+="════════════════════════════════\n";
-    t+=`LAST ${last.length} SESSIONS:\n`;
-    t+=`Avg fillers: ${avgF} | Avg duration: ${avgD}s | Trailed: ${trails}/${last.length}\n`;
+    t+=`LAST ${last.length} SESSIONS SUMMARY:\n`;
+    t+=`Avg hard fillers: ${avgF} | Avg soft fillers: ${avgSF}\n`;
+    t+=`Avg duration: ${avgD}s | Trailed: ${trails}/${last.length}\n`;
+    t+=`Avg AI confidence: ${avgConf}/5\n`;
   }
   return t;
 }
