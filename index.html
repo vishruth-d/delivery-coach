@@ -1,0 +1,920 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Coach">
+<meta name="theme-color" content="#08080d">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-192.png">
+<title>Delivery Coach</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+:root{--bg:#08080d;--card:rgba(255,255,255,0.03);--border:rgba(255,255,255,0.08);--text:#e0e0e0;--dim:#666;--vdim:#333;--red:#ff6b6b;--orange:#ffa36b;--blue:#6bdfff;--purple:#b06bff;--green:#4ade80;--font:'SF Mono','Menlo','JetBrains Mono','Fira Code',monospace}
+html,body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:100vh;min-height:100dvh;overflow-x:hidden}
+body{padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom) 0}
+.screen{display:none;min-height:100vh;min-height:100dvh}
+.screen.active{display:flex;flex-direction:column}
+.container{padding:20px 16px;max-width:480px;margin:0 auto;width:100%}
+.card{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:20px;margin-bottom:16px}
+.label{font-size:10px;letter-spacing:3px;color:#444;text-transform:uppercase;margin-bottom:8px}
+.btn{padding:16px 24px;border-radius:14px;border:none;font-weight:800;font-size:15px;font-family:var(--font);cursor:pointer;width:100%;display:block;text-align:center}
+.btn-ghost{background:transparent;border:1px solid var(--border);color:#555;font-size:13px}
+.pill{padding:6px 14px;border-radius:20px;font-size:12px;font-weight:700;display:inline-flex;align-items:center;gap:6px}
+input,textarea{width:100%;padding:12px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.1);border-radius:10px;color:#ccc;font-size:14px;font-family:var(--font);resize:vertical;-webkit-appearance:none}
+input:focus,textarea:focus{outline:none;border-color:rgba(255,255,255,0.25)}
+.score-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px}
+.score-btn{width:38px;height:38px;border-radius:10px;border:none;font-weight:700;font-size:14px;cursor:pointer;font-family:var(--font)}
+.stat-box{background:rgba(255,255,255,0.04);border-radius:10px;padding:12px;text-align:center}
+.stat-num{font-size:22px;font-weight:800}
+.stat-label{font-size:10px;color:var(--dim);letter-spacing:1px;margin-top:2px}
+details summary{font-size:11px;color:#555;cursor:pointer;margin-bottom:8px}
+.history-item{padding:14px;margin-bottom:8px}
+.recording-overlay{position:absolute;top:0;left:0;right:0;padding:20px 16px;background:linear-gradient(180deg,rgba(0,0,0,0.7),transparent);z-index:2}
+.transcript-overlay{position:absolute;bottom:0;left:0;right:0;padding:16px;background:linear-gradient(0deg,rgba(0,0,0,0.85),transparent);max-height:35%;overflow:auto;z-index:2}
+.rec-dot{width:8px;height:8px;border-radius:50%;background:#ff4444;animation:pulse 1s infinite}
+.stop-btn{width:72px;height:72px;border-radius:50%;border:4px solid #ff4444;background:transparent;cursor:pointer;display:flex;align-items:center;justify-content:center}
+.stop-inner{width:28px;height:28px;border-radius:6px;background:#ff4444}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.4}}
+@keyframes fadeIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+.fade-in{animation:fadeIn 0.3s ease}
+.nav{display:flex;gap:8px;margin-top:16px}
+.nav .btn-ghost{flex:1;padding:12px;font-size:11px;letter-spacing:1px}
+.groq-badge{font-size:9px;padding:3px 8px;border-radius:10px;background:rgba(74,222,128,0.1);color:var(--green);border:1px solid rgba(74,222,128,0.2);display:inline-block;margin-top:8px}
+.settings-row{display:flex;justify-content:space-between;align-items:center;padding:14px 0;border-bottom:1px solid var(--border)}
+.settings-label{font-size:13px;color:#ccc}
+.settings-desc{font-size:10px;color:#555;margin-top:2px}
+.toggle{width:48px;height:28px;border-radius:14px;border:none;cursor:pointer;position:relative;transition:background 0.2s}
+.toggle::after{content:'';width:22px;height:22px;border-radius:50%;background:#fff;position:absolute;top:3px;transition:left 0.2s}
+.toggle.off{background:#333}.toggle.off::after{left:3px}
+.toggle.on{background:var(--green)}.toggle.on::after{left:23px}
+.q-item{display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid rgba(255,255,255,0.04)}
+.q-item span{font-size:12px;color:#888;flex:1}
+.q-remove{background:none;border:none;color:#ff4444;font-size:16px;cursor:pointer;padding:4px 8px}
+</style>
+</head>
+<body>
+
+<!-- ═══════ HOME ═══════ -->
+<div id="home" class="screen active">
+<div class="container">
+  <div style="margin-bottom:24px">
+    <div class="label" style="margin-bottom:4px">DAILY PRACTICE</div>
+    <h1 style="font-size:24px;font-weight:800;color:#fff">Delivery Coach</h1>
+    <div id="home-stats" style="display:flex;gap:12px;margin-top:10px;font-size:12px"></div>
+  </div>
+  <div id="habit-bar" style="display:flex;gap:6px;margin-bottom:24px"></div>
+  <div id="focus-card" class="card" style="margin-bottom:16px"></div>
+  <div class="card">
+    <div class="label">YOUR QUESTION</div>
+    <p id="question-text" style="font-size:15px;font-weight:700;color:#fff;line-height:1.4;font-family:Georgia,serif;font-style:italic;margin-bottom:12px"></p>
+    <input type="text" id="custom-q" placeholder="Or type your own question...">
+  </div>
+  <button class="btn" id="start-btn" onclick="startRecording()" style="margin-top:8px">● START RECORDING</button>
+  <div id="camera-error" style="display:none;margin-top:12px;padding:12px;border-radius:10px;background:rgba(255,80,80,0.1);border:1px solid rgba(255,80,80,0.3);font-size:12px;color:#ff8888"></div>
+  <div id="done-today" style="display:none;margin-top:12px;padding:12px;border-radius:10px;text-align:center;background:rgba(74,222,128,0.08);border:1px solid rgba(74,222,128,0.2);font-size:12px;color:#4ade80">✓ Already logged today — do extra reps anytime</div>
+  <div class="nav">
+    <button class="btn btn-ghost" onclick="showScreen('history')">HISTORY (<span id="history-count">0</span>)</button>
+    <button class="btn btn-ghost" onclick="showScreen('settings')">SETTINGS</button>
+  </div>
+</div>
+</div>
+
+<!-- ═══════ RECORDING ═══════ -->
+<div id="record" class="screen">
+<div style="flex:1;position:relative;background:#000;overflow:hidden">
+  <video id="preview" autoplay playsinline muted style="width:100%;height:100%;object-fit:cover;transform:scaleX(-1)"></video>
+  <div class="recording-overlay">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <div class="pill" style="background:rgba(255,68,68,0.15);color:#ff4444;border:1px solid rgba(255,68,68,0.3)">
+        <span class="rec-dot"></span> REC <span id="rec-timer">0:00</span>
+      </div>
+      <div class="pill" id="rec-habit-pill"></div>
+    </div>
+  </div>
+  <div class="transcript-overlay">
+    <div id="live-transcript" style="font-size:13px;color:#ddd;line-height:1.5">
+      <span style="color:#555;font-style:italic">Start speaking...</span>
+    </div>
+  </div>
+</div>
+<div style="padding:20px 16px;background:var(--bg);display:flex;justify-content:center">
+  <button class="stop-btn" onclick="stopRecording()"><div class="stop-inner"></div></button>
+</div>
+</div>
+
+<!-- ═══════ RESULTS ═══════ -->
+<div id="results" class="screen">
+<div class="container" style="padding-bottom:40px">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+    <h2 style="font-size:20px;font-weight:800;color:#fff">Results</h2>
+    <span id="result-time" style="font-size:12px;color:#555"></span>
+  </div>
+  <div id="video-container" style="margin-bottom:16px;border-radius:12px;overflow:hidden">
+    <video id="playback" controls playsinline style="width:100%;border-radius:12px;transform:scaleX(-1)"></video>
+    <div style="font-size:10px;color:#444;text-align:center;margin-top:6px">Watch back — check body language, posture, eye contact</div>
+  </div>
+  <div id="auto-analysis" class="card" style="display:none">
+    <div class="label">SPEECH ANALYSIS</div>
+    <div id="stats-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px"></div>
+    <div id="filler-breakdown" style="display:none;margin-bottom:14px"></div>
+    <div id="groq-analysis" style="display:none"></div>
+    <details id="transcript-details">
+      <summary>View transcript (fillers in ⟨brackets⟩)</summary>
+      <div id="transcript-view" style="font-size:12px;color:#777;line-height:1.6;padding:10px;background:rgba(0,0,0,0.3);border-radius:8px;max-height:200px;overflow:auto"></div>
+    </details>
+    <div id="duration-warn" style="display:none;margin-top:10px;padding:10px;border-radius:8px;background:rgba(255,107,107,0.08);border:1px solid rgba(255,107,107,0.2);font-size:11px;color:#ff8888">⚠️ Over 2 minutes. Most answers should be 60-90 seconds.</div>
+  </div>
+  <div id="no-transcript" class="card" style="display:none;text-align:center;color:#555;font-size:12px">Speech not captured — score manually below</div>
+  <div class="card">
+    <div class="label">SELF-SCORE (from video review)</div>
+    <div id="manual-scores"></div>
+    <textarea id="session-notes" placeholder="Quick notes — what did you notice watching back?" rows="3"></textarea>
+  </div>
+  <button class="btn" id="log-btn" onclick="logSession()">LOG THIS SESSION</button>
+  <button class="btn btn-ghost" onclick="discardSession()" style="margin-top:8px">Discard and go back</button>
+</div>
+</div>
+
+<!-- ═══════ LOGGED ═══════ -->
+<div id="logged" class="screen">
+<div class="container" style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;min-height:100dvh;text-align:center">
+  <div style="font-size:56px;margin-bottom:16px">✓</div>
+  <h2 style="font-size:22px;font-weight:800;color:#fff;margin-bottom:8px">Logged</h2>
+  <p id="logged-info" style="font-size:13px;color:var(--dim);margin-bottom:4px"></p>
+  <p id="logged-next" style="font-size:12px;color:#444;margin-bottom:32px"></p>
+  <button class="btn" id="logged-back-btn" onclick="resetAndHome()">BACK TO HOME</button>
+</div>
+</div>
+
+<!-- ═══════ HISTORY ═══════ -->
+<div id="history" class="screen">
+<div class="container" style="padding-bottom:40px">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+    <h2 style="font-size:20px;font-weight:800;color:#fff">History</h2>
+    <button class="btn btn-ghost" onclick="showScreen('home')" style="width:auto;padding:8px 16px;font-size:11px">BACK</button>
+  </div>
+  <div id="history-summary" class="card" style="display:none"></div>
+  <div id="history-list"></div>
+  <div id="history-empty" style="text-align:center;color:#333;font-size:12px;padding:40px 0">No sessions yet. Go record one.</div>
+</div>
+</div>
+
+<!-- ═══════ SETTINGS ═══════ -->
+<div id="settings" class="screen">
+<div class="container" style="padding-bottom:40px">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+    <h2 style="font-size:20px;font-weight:800;color:#fff">Settings</h2>
+    <button class="btn btn-ghost" onclick="showScreen('home')" style="width:auto;padding:8px 16px;font-size:11px">BACK</button>
+  </div>
+
+  <div class="card">
+    <div class="label">AI ANALYSIS (GROQ)</div>
+    <p style="font-size:12px;color:#777;margin-bottom:12px;line-height:1.5">Add a free Groq API key for deeper analysis — catches fillers the auto-detect misses, evaluates your ending, flags repetition, gives coaching notes.</p>
+    <input type="password" id="groq-key" placeholder="gsk_..." oninput="saveSettings()" style="margin-bottom:8px;font-size:13px">
+    <a href="https://console.groq.com/keys" target="_blank" style="font-size:11px;color:var(--blue);text-decoration:none">Get a free API key →</a>
+    <div id="groq-status" style="margin-top:8px"></div>
+  </div>
+
+  <div class="card">
+    <div class="label">DAILY REMINDER</div>
+    <div class="settings-row" style="border:none;padding-top:0">
+      <div>
+        <div class="settings-label">Push notification</div>
+        <div class="settings-desc" id="notif-desc">Remind me daily at 9:00 AM</div>
+      </div>
+      <button class="toggle off" id="notif-toggle" onclick="toggleNotifications()"></button>
+    </div>
+    <input type="time" id="notif-time" value="09:00" onchange="saveSettings()" style="margin-top:8px;display:none">
+    <div id="notif-note" style="font-size:10px;color:#444;margin-top:8px;display:none">
+      iOS note: notifications work best when the app is installed on your home screen
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="label">CUSTOM QUESTIONS</div>
+    <div id="custom-q-list"></div>
+    <div style="display:flex;gap:8px;margin-top:10px">
+      <input type="text" id="new-custom-q" placeholder="Add a question..." style="flex:1;font-size:12px;padding:10px">
+      <button class="btn" onclick="addCustomQuestion()" style="width:auto;padding:10px 16px;font-size:12px;background:var(--blue)">ADD</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="label">EXPORT DATA</div>
+    <p style="font-size:12px;color:#777;margin-bottom:12px;line-height:1.5">Copy your progress report and send it to Claude for feedback.</p>
+    <button class="btn" onclick="exportData()" style="background:var(--green);font-size:13px;padding:14px" id="export-btn">EXPORT PROGRESS REPORT</button>
+    <button class="btn btn-ghost" onclick="shareData()" style="margin-top:8px;font-size:12px" id="share-btn">SHARE VIA...</button>
+  </div>
+
+  <div class="card" style="border-color:rgba(255,68,68,0.15)">
+    <button class="btn" onclick="resetAllData()" style="background:transparent;color:#ff4444;font-size:12px;padding:12px;border:1px solid rgba(255,68,68,0.2)">RESET ALL DATA</button>
+  </div>
+</div>
+</div>
+
+<script>
+// ═══════════════════════════════════════
+// STATE & CONFIG
+// ═══════════════════════════════════════
+const HABITS = [
+  {id:0,name:"Land the ending",emoji:"🎯",color:"#ff6b6b",short:"ENDINGS",
+   tip:"Last sentence: short and declarative. When 'so yeah' comes — stop."},
+  {id:1,name:"Kill the fillers",emoji:"✂️",color:"#ffa36b",short:"FILLERS",
+   tip:"Replace every 'sort of', 'I guess', 'kind of' with a half-second pause."},
+  {id:2,name:"Make the point, stop",emoji:"🛑",color:"#6bdfff",short:"CONCISE",
+   tip:"Decide your answer in 2 sentences. Only add more if it's NEW info."},
+  {id:3,name:"Sit in silence",emoji:"🤫",color:"#b06bff",short:"SILENCE",
+   tip:"After your point, 5 seconds of silence. It feels long. It isn't."}
+];
+
+const DEFAULT_QUESTIONS = [
+  "Why did you choose LSE?","What did you learn at Atomico?",
+  "What's the hardest problem you've solved?","Why startups over corporate?",
+  "Tell me about PersonalPath","What's something you're bad at?",
+  "Why do you want to be a founder?","What did you build with PropertyCompanion?",
+  "What's something you changed your mind about recently?","Describe a time you failed",
+  "What makes a great startup?","Why should someone hire you?",
+  "What's the most interesting thing you've learned this year?",
+  "What would you do in your first month at a new job?",
+  "What's something you automated or improved?",
+  "Tell me about a time you disagreed with someone senior",
+  "What's a risk you took that paid off?",
+  "How do you prioritise when everything is urgent?",
+  "What would you do if the role was different from what you expected?",
+  "What's a company you admire and why?"
+];
+
+const FILLER_PHRASES = ["sort of","kind of","i guess","you know","i think","i mean",
+  "so yeah","basically","literally","to be honest","at the end of the day",
+  "if that makes sense","does that make sense","and stuff","or whatever"];
+const FILLER_WORDS = ["um","uh","like","right","yeah","er","erm"];
+
+let state = {entries:[],settings:{groqKey:"",notifEnabled:false,notifTime:"09:00",customQuestions:[]}};
+let recording = {active:false,timer:0,transcript:"",interim:"",pauses:[],lastSpeech:0};
+let mediaRecorder=null, stream=null, recognition=null, chunks=[], timerInterval=null, videoUrl=null;
+let currentAnalysis=null, manualScores={body:null,energy:null,confidence:null};
+
+// ═══════════════════════════════════════
+// PERSISTENCE
+// ═══════════════════════════════════════
+function save(){localStorage.setItem('dc_data',JSON.stringify(state))}
+function load(){
+  try{const d=JSON.parse(localStorage.getItem('dc_data'));if(d){state=d;
+    if(!state.settings)state.settings={groqKey:"",notifEnabled:false,notifTime:"09:00",customQuestions:[]};
+    if(!state.settings.customQuestions)state.settings.customQuestions=[];
+  }}catch(e){}
+}
+
+// ═══════════════════════════════════════
+// HELPERS
+// ═══════════════════════════════════════
+function today(){return new Date().toISOString().split('T')[0]}
+function dayIndex(){return state.entries.length}
+function todayHabit(){return HABITS[dayIndex()%4]}
+function completedToday(){return state.entries.some(e=>e.date===today())}
+function formatTime(s){return Math.floor(s/60)+':'+(s%60).toString().padStart(2,'0')}
+
+function getStreak(){
+  let s=0,d=new Date();
+  for(let i=0;i<60;i++){
+    const c=d.toISOString().split('T')[0];
+    if(state.entries.find(e=>e.date===c))s++;
+    else if(i>0)break;
+    d.setDate(d.getDate()-1);
+  }
+  return s;
+}
+
+function pickQuestion(){
+  const all=[...DEFAULT_QUESTIONS,...(state.settings.customQuestions||[])];
+  const used=state.entries.slice(-15).map(e=>e.question);
+  const avail=all.filter(q=>!used.includes(q));
+  const pool=avail.length>0?avail:all;
+  const seed=today().split('-').reduce((a,b)=>a+parseInt(b),0);
+  return pool[seed%pool.length];
+}
+
+function countFillers(text){
+  const lower=text.toLowerCase();
+  let count=0;const found=[];
+  FILLER_PHRASES.forEach(f=>{
+    const r=new RegExp(`\\b${f.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}\\b`,'gi');
+    const m=lower.match(r);
+    if(m){count+=m.length;m.forEach(()=>found.push(f))}
+  });
+  FILLER_WORDS.forEach(f=>{
+    const r=new RegExp(`(?:^|[\\s,.])(${f})(?=[\\s,.]|$)`,'gi');
+    const m=lower.match(r);
+    if(m){count+=m.length;m.forEach(()=>found.push(f))}
+  });
+  return{count,found};
+}
+
+function analyzeTrailing(text){
+  const words=text.trim().split(/\s+/);
+  if(words.length<5)return{trailing:false};
+  const last=words.slice(-Math.max(8,Math.floor(words.length*0.15))).join(' ');
+  const{count}=countFillers(last);
+  const weak=/\b(so yeah|you know|kind of|i guess|that's it|yeah|and stuff)\s*\.?\s*$/i.test(text.trim());
+  return{trailing:count>=2||weak};
+}
+
+function highlightFillers(text){
+  let h=text;
+  [...FILLER_PHRASES].sort((a,b)=>b.length-a.length).forEach(f=>{
+    const r=new RegExp(`(\\b${f.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}\\b)`,'gi');
+    h=h.replace(r,'⟨$1⟩');
+  });
+  FILLER_WORDS.forEach(f=>{
+    const r=new RegExp(`(?<=^|[\\s,.])(${f})(?=[\\s,.]|$)`,'gi');
+    h=h.replace(r,'⟨$1⟩');
+  });
+  return h;
+}
+
+// ═══════════════════════════════════════
+// SCREENS
+// ═══════════════════════════════════════
+function showScreen(id){
+  document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+  if(id==='home')renderHome();
+  if(id==='history')renderHistory();
+  if(id==='settings')renderSettings();
+}
+
+// ═══════════════════════════════════════
+// HOME
+// ═══════════════════════════════════════
+function renderHome(){
+  const h=todayHabit(),s=getStreak(),di=dayIndex();
+  
+  document.getElementById('home-stats').innerHTML=`
+    <span style="color:var(--dim)">Day <span style="color:${h.color};font-weight:700">${di+1}</span></span>
+    <span style="color:var(--dim)">Streak <span style="color:${s>=3?'var(--green)':'var(--orange)';};font-weight:700">${s}</span></span>
+    <span style="color:var(--dim)">Cycle <span style="color:#888;font-weight:700">${(di%4)+1}/4</span></span>`;
+
+  document.getElementById('habit-bar').innerHTML=HABITS.map((hb,i)=>`
+    <div style="flex:1;text-align:center">
+      <div style="height:4px;border-radius:2px;margin-bottom:6px;background:${i===di%4?hb.color:'rgba(255,255,255,0.06)'}"></div>
+      <span style="font-size:9px;color:${i===di%4?hb.color:'#333'};letter-spacing:1px">${hb.short}</span>
+    </div>`).join('');
+
+  document.getElementById('focus-card').innerHTML=`
+    <div style="font-size:28px;margin-bottom:6px">${h.emoji}</div>
+    <div class="label" style="color:${h.color}">TODAY'S FOCUS</div>
+    <div style="font-size:18px;font-weight:800;color:#fff;margin-bottom:8px">${h.name}</div>
+    <div style="font-size:12px;color:#999;line-height:1.6">${h.tip}</div>`;
+  document.getElementById('focus-card').style.background=`linear-gradient(135deg,${h.color}0d,transparent)`;
+  document.getElementById('focus-card').style.borderColor=h.color+'33';
+
+  document.getElementById('question-text').textContent=`"${pickQuestion()}"`;
+  document.getElementById('start-btn').style.background=h.color;
+  document.getElementById('done-today').style.display=completedToday()?'block':'none';
+  document.getElementById('history-count').textContent=state.entries.length;
+}
+
+// ═══════════════════════════════════════
+// RECORDING
+// ═══════════════════════════════════════
+async function startRecording(){
+  document.getElementById('camera-error').style.display='none';
+  recording={active:true,timer:0,transcript:"",interim:"",pauses:[],lastSpeech:Date.now()};
+  chunks=[];videoUrl=null;
+
+  try{
+    stream=await navigator.mediaDevices.getUserMedia({
+      video:{facingMode:"user",width:{ideal:720},height:{ideal:1280}},audio:true
+    });
+  }catch(e){
+    document.getElementById('camera-error').textContent=e.message||'Camera access denied. Check browser settings.';
+    document.getElementById('camera-error').style.display='block';
+    return;
+  }
+
+  const preview=document.getElementById('preview');
+  preview.srcObject=stream;
+  preview.play().catch(()=>{});
+
+  // Media recorder
+  const mimes=["video/webm;codecs=vp8,opus","video/webm","video/mp4",""];
+  let mime="";
+  for(const m of mimes){if(!m||MediaRecorder.isTypeSupported(m)){mime=m;break}}
+  mediaRecorder=new MediaRecorder(stream,mime?{mimeType:mime}:{});
+  mediaRecorder.ondataavailable=e=>{if(e.data.size>0)chunks.push(e.data)};
+  mediaRecorder.onstop=()=>{
+    const blob=new Blob(chunks,{type:mediaRecorder.mimeType||'video/webm'});
+    videoUrl=URL.createObjectURL(blob);
+    document.getElementById('playback').src=videoUrl;
+  };
+  mediaRecorder.start(1000);
+
+  // Speech recognition
+  const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+  if(SR){
+    recognition=new SR();
+    recognition.continuous=true;
+    recognition.interimResults=true;
+    recognition.lang='en-GB';
+    recognition.onresult=e=>{
+      const now=Date.now();
+      const gap=now-recording.lastSpeech;
+      if(gap>1500&&recording.lastSpeech>0)recording.pauses.push(gap/1000);
+      recording.lastSpeech=now;
+      let final="",interim="";
+      for(let i=0;i<e.results.length;i++){
+        if(e.results[i].isFinal)final+=e.results[i][0].transcript+" ";
+        else interim+=e.results[i][0].transcript;
+      }
+      if(final)recording.transcript+=final;
+      recording.interim=interim;
+      updateLiveTranscript();
+    };
+    recognition.onend=()=>{if(recording.active)try{recognition.start()}catch(e){}};
+    recognition.onerror=()=>{};
+    try{recognition.start()}catch(e){}
+  }
+
+  // Timer
+  timerInterval=setInterval(()=>{
+    recording.timer++;
+    document.getElementById('rec-timer').textContent=formatTime(recording.timer);
+  },1000);
+
+  // UI
+  const h=todayHabit();
+  document.getElementById('rec-habit-pill').innerHTML=`${h.emoji} ${h.short}`;
+  document.getElementById('rec-habit-pill').style.cssText=`background:${h.color}22;color:${h.color};border:1px solid ${h.color}44;padding:6px 14px;border-radius:20px;font-size:12px;font-weight:700`;
+  showScreen('record');
+}
+
+function updateLiveTranscript(){
+  const el=document.getElementById('live-transcript');
+  if(recording.transcript||recording.interim){
+    el.innerHTML=`<span>${recording.transcript}</span><span style="color:#888">${recording.interim}</span>`;
+  }
+}
+
+function stopRecording(){
+  recording.active=false;
+  clearInterval(timerInterval);
+  if(recognition)try{recognition.stop()}catch(e){}
+  if(mediaRecorder&&mediaRecorder.state!=='inactive')mediaRecorder.stop();
+  if(stream)stream.getTracks().forEach(t=>t.stop());
+
+  const text=recording.transcript;
+  const dur=recording.timer;
+  manualScores={body:null,energy:null,confidence:null};
+  document.getElementById('session-notes').value='';
+
+  if(text.trim().length>10){
+    const fillers=countFillers(text);
+    const trailing=analyzeTrailing(text);
+    const words=text.trim().split(/\s+/).filter(Boolean).length;
+    const wpm=dur>0?(words/dur)*60:0;
+    currentAnalysis={fillers,trailing,words,wpm,duration:dur,
+      pauses:recording.pauses,tooLong:dur>120,highlighted:highlightFillers(text),raw:text};
+  }else{currentAnalysis=null}
+
+  renderResults();
+  showScreen('results');
+
+  // Groq analysis if key exists
+  if(currentAnalysis&&state.settings.groqKey){
+    runGroqAnalysis(text,dur);
+  }
+}
+
+// ═══════════════════════════════════════
+// RESULTS
+// ═══════════════════════════════════════
+function renderResults(){
+  const h=todayHabit();
+  document.getElementById('result-time').textContent=formatTime(recording.timer);
+  document.getElementById('log-btn').style.background=h.color;
+  document.getElementById('video-container').style.display=videoUrl?'block':'none';
+
+  if(currentAnalysis){
+    const a=currentAnalysis;
+    document.getElementById('auto-analysis').style.display='block';
+    document.getElementById('no-transcript').style.display='none';
+
+    const fc=a.fillers.count;
+    const fcColor=fc>5?'var(--red)':fc>2?'var(--orange)':'var(--green)';
+    const ec=a.trailing.trailing?'var(--red)':'var(--green)';
+    document.getElementById('stats-grid').innerHTML=`
+      <div class="stat-box"><div class="stat-num" style="color:${fcColor}">${fc}</div><div class="stat-label">FILLERS</div></div>
+      <div class="stat-box"><div class="stat-num">${a.words}</div><div class="stat-label">WORDS</div></div>
+      <div class="stat-box"><div class="stat-num" style="color:${ec}">${a.trailing.trailing?'Weak':'Clean'}</div><div class="stat-label">ENDING</div></div>
+      <div class="stat-box"><div class="stat-num">${a.pauses.length}</div><div class="stat-label">PAUSES</div></div>`;
+
+    if(fc>0){
+      const unique=[...new Set(a.fillers.found)];
+      document.getElementById('filler-breakdown').style.display='block';
+      document.getElementById('filler-breakdown').innerHTML=`
+        <div style="font-size:11px;color:#888;margin-bottom:6px">Fillers found:</div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">${unique.map(f=>{
+          const c=a.fillers.found.filter(x=>x===f).length;
+          return `<span class="pill" style="background:rgba(255,163,107,0.12);color:var(--orange);border:1px solid rgba(255,163,107,0.25);font-size:11px">${f}${c>1?' ×'+c:''}</span>`;
+        }).join('')}</div>`;
+    }else{document.getElementById('filler-breakdown').style.display='none'}
+
+    document.getElementById('transcript-view').textContent=a.highlighted;
+    document.getElementById('duration-warn').style.display=a.tooLong?'block':'none';
+    document.getElementById('groq-analysis').style.display='none';
+  }else{
+    document.getElementById('auto-analysis').style.display='none';
+    document.getElementById('no-transcript').style.display='block';
+  }
+
+  // Manual scores
+  const scoreFields=[
+    {key:'body',label:'Body language',desc:'Posture, hands, eye contact'},
+    {key:'energy',label:'Energy',desc:'Engaged, not flat or manic'},
+    {key:'confidence',label:'Confidence',desc:'Sounded sure of yourself'}
+  ];
+  document.getElementById('manual-scores').innerHTML=scoreFields.map(({key,label,desc})=>`
+    <div class="score-row">
+      <div><div style="font-size:13px;color:#ccc;font-weight:600">${label}</div>
+        <div style="font-size:10px;color:#555">${desc}</div></div>
+      <div style="display:flex;gap:4px">${[1,2,3,4,5].map(n=>`
+        <button class="score-btn" data-key="${key}" data-val="${n}" onclick="setScore('${key}',${n})"
+          style="background:${manualScores[key]===n?h.color:'rgba(255,255,255,0.06)'};color:${manualScores[key]===n?'#000':'#555'}">${n}</button>`).join('')}
+      </div>
+    </div>`).join('');
+}
+
+function setScore(key,val){
+  manualScores[key]=val;
+  const h=todayHabit();
+  document.querySelectorAll(`.score-btn[data-key="${key}"]`).forEach(b=>{
+    const v=parseInt(b.dataset.val);
+    b.style.background=v===val?h.color:'rgba(255,255,255,0.06)';
+    b.style.color=v===val?'#000':'#555';
+  });
+}
+
+// ═══════════════════════════════════════
+// GROQ AI ANALYSIS
+// ═══════════════════════════════════════
+async function runGroqAnalysis(text,duration){
+  const el=document.getElementById('groq-analysis');
+  el.style.display='block';
+  el.innerHTML=`<div style="padding:12px;background:rgba(74,222,128,0.06);border:1px solid rgba(74,222,128,0.15);border-radius:10px;font-size:12px;color:var(--green)">Analysing with AI...</div>`;
+
+  try{
+    const res=await fetch('https://api.groq.com/openai/v1/chat/completions',{
+      method:'POST',
+      headers:{'Content-Type':'application/json','Authorization':`Bearer ${state.settings.groqKey}`},
+      body:JSON.stringify({
+        model:'llama-3.1-8b-instant',
+        messages:[{role:'system',content:`You are a speech delivery coach. Analyse this interview practice transcript. Respond ONLY in valid JSON, no markdown, no backticks, no preamble.
+
+JSON format:
+{"fillers":{"total":N,"missed":["words the speaker used as fillers that aren't obvious"]},"ending":{"strong":true/false,"note":"10 words max"},"repetition":{"score":1-5,"note":"10 words max"},"coaching":"One specific actionable sentence under 20 words"}`},
+          {role:'user',content:`Transcript (${duration} seconds):\n${text}`}],
+        temperature:0.3,max_tokens:300
+      })
+    });
+
+    if(!res.ok){
+      const err=await res.text();
+      throw new Error(err);
+    }
+
+    const data=await res.json();
+    let content=data.choices[0].message.content.trim();
+    content=content.replace(/```json\s*/g,'').replace(/```/g,'').trim();
+    const result=JSON.parse(content);
+
+    el.innerHTML=`
+      <div style="padding:14px;background:rgba(74,222,128,0.06);border:1px solid rgba(74,222,128,0.15);border-radius:10px">
+        <div style="display:flex;align-items:center;gap:6px;margin-bottom:10px">
+          <span class="groq-badge">AI ANALYSIS</span>
+        </div>
+        <div style="font-size:13px;color:var(--green);font-weight:700;margin-bottom:10px;line-height:1.5">${result.coaching||''}</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:11px">
+          <div style="color:#888">Ending: <span style="color:${result.ending?.strong?'var(--green)':'var(--red)'}">${result.ending?.strong?'Strong':'Weak'}</span></div>
+          <div style="color:#888">Repetition: <span style="color:#ccc">${result.repetition?.score||'?'}/5</span></div>
+        </div>
+        ${result.ending?.note?`<div style="font-size:10px;color:#555;margin-top:6px">Ending: ${result.ending.note}</div>`:''}
+        ${result.repetition?.note?`<div style="font-size:10px;color:#555;margin-top:4px">Repetition: ${result.repetition.note}</div>`:''}
+        ${result.fillers?.missed?.length?`<div style="font-size:10px;color:#555;margin-top:4px">Also spotted: ${result.fillers.missed.join(', ')}</div>`:''}
+      </div>`;
+
+    // Store AI result in currentAnalysis
+    if(currentAnalysis)currentAnalysis.groq=result;
+  }catch(e){
+    el.innerHTML=`<div style="padding:12px;background:rgba(255,80,80,0.08);border:1px solid rgba(255,80,80,0.2);border-radius:10px;font-size:11px;color:#ff8888">
+      AI analysis failed: ${e.message?.substring(0,100)||'Check your API key'}</div>`;
+  }
+}
+
+// ═══════════════════════════════════════
+// LOG SESSION
+// ═══════════════════════════════════════
+function logSession(){
+  const q=document.getElementById('custom-q').value.trim()||pickQuestion();
+  const entry={
+    date:today(),
+    habitId:todayHabit().id,
+    habit:todayHabit().name,
+    question:q,
+    duration:recording.timer,
+    analysis:currentAnalysis?{
+      fillerCount:currentAnalysis.fillers.count,
+      fillerWords:currentAnalysis.fillers.found,
+      trailedOff:currentAnalysis.trailing.trailing,
+      wordCount:currentAnalysis.words,
+      wpm:Math.round(currentAnalysis.wpm),
+      pauseCount:currentAnalysis.pauses.length,
+      tooLong:currentAnalysis.tooLong,
+      groqCoaching:currentAnalysis.groq?.coaching||null,
+      groqEndingStrong:currentAnalysis.groq?.ending?.strong??null,
+      groqRepetition:currentAnalysis.groq?.repetition?.score||null
+    }:null,
+    manualScores:{...manualScores},
+    notes:document.getElementById('session-notes').value,
+    transcript:currentAnalysis?.raw||""
+  };
+
+  state.entries.push(entry);
+  save();
+
+  if(videoUrl){URL.revokeObjectURL(videoUrl);videoUrl=null}
+
+  const h=todayHabit();
+  const next=HABITS[(state.entries.length)%4];
+  document.getElementById('logged-info').textContent=`Day ${state.entries.length} complete. Streak: ${getStreak()}.`;
+  document.getElementById('logged-next').textContent=`Tomorrow: ${next.emoji} ${next.name}`;
+  document.getElementById('logged-back-btn').style.background=h.color;
+  showScreen('logged');
+}
+
+function discardSession(){
+  if(videoUrl){URL.revokeObjectURL(videoUrl);videoUrl=null}
+  currentAnalysis=null;
+  showScreen('home');
+}
+
+function resetAndHome(){
+  currentAnalysis=null;
+  document.getElementById('custom-q').value='';
+  showScreen('home');
+}
+
+// ═══════════════════════════════════════
+// HISTORY
+// ═══════════════════════════════════════
+function renderHistory(){
+  const list=document.getElementById('history-list');
+  const empty=document.getElementById('history-empty');
+  const summary=document.getElementById('history-summary');
+
+  if(state.entries.length===0){
+    list.innerHTML='';empty.style.display='block';summary.style.display='none';return;
+  }
+
+  empty.style.display='none';
+
+  // Summary
+  if(state.entries.length>=3){
+    const last7=state.entries.slice(-7);
+    const avgF=(last7.reduce((a,e)=>a+(e.analysis?.fillerCount||0),0)/last7.length).toFixed(1);
+    const avgD=Math.round(last7.reduce((a,e)=>a+(e.duration||0),0)/last7.length);
+    const trails=last7.filter(e=>e.analysis?.trailedOff).length;
+    summary.style.display='block';
+    summary.innerHTML=`
+      <div class="label">LAST ${last7.length} SESSIONS</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">
+        <div class="stat-box"><div class="stat-num" style="font-size:18px;color:${avgF>4?'var(--red)':avgF>2?'var(--orange)':'var(--green)'}">${avgF}</div><div class="stat-label">AVG FILLERS</div></div>
+        <div class="stat-box"><div class="stat-num" style="font-size:18px">${avgD}s</div><div class="stat-label">AVG TIME</div></div>
+        <div class="stat-box"><div class="stat-num" style="font-size:18px;color:${trails>3?'var(--red)':'var(--green)'}">${trails}/${last7.length}</div><div class="stat-label">TRAILED</div></div>
+      </div>`;
+  }else{summary.style.display='none'}
+
+  list.innerHTML=[...state.entries].reverse().map((e,i)=>{
+    const h=HABITS[e.habitId]||HABITS[0];
+    return `<div class="card history-item">
+      <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+        <span style="font-size:11px;color:${h.color};font-weight:700">${h.emoji} ${h.name}</span>
+        <span style="font-size:10px;color:#333">${e.date}</span>
+      </div>
+      <div style="font-size:11px;color:#555;font-style:italic;margin-bottom:4px">"${e.question}"</div>
+      <div style="display:flex;gap:10px;font-size:10px;flex-wrap:wrap">
+        <span style="color:var(--dim)">${e.duration}s</span>
+        ${e.analysis?`
+          <span style="color:${e.analysis.fillerCount>5?'var(--red)':e.analysis.fillerCount>2?'var(--orange)':'var(--green)'}">${e.analysis.fillerCount} fillers</span>
+          <span style="color:${e.analysis.trailedOff?'var(--red)':'var(--green)'}">${e.analysis.trailedOff?'trailed':'landed'}</span>
+          <span style="color:var(--dim)">${e.analysis.wordCount}w</span>
+        `:''}
+      </div>
+      ${e.analysis?.groqCoaching?`<div style="font-size:10px;color:var(--green);margin-top:6px">💡 ${e.analysis.groqCoaching}</div>`:''}
+      ${e.notes?`<div style="font-size:10px;color:#444;margin-top:4px">${e.notes}</div>`:''}
+    </div>`;
+  }).join('');
+}
+
+// ═══════════════════════════════════════
+// SETTINGS
+// ═══════════════════════════════════════
+function renderSettings(){
+  document.getElementById('groq-key').value=state.settings.groqKey||'';
+  document.getElementById('notif-time').value=state.settings.notifTime||'09:00';
+  
+  const toggle=document.getElementById('notif-toggle');
+  toggle.className=`toggle ${state.settings.notifEnabled?'on':'off'}`;
+  document.getElementById('notif-time').style.display=state.settings.notifEnabled?'block':'none';
+  document.getElementById('notif-note').style.display=state.settings.notifEnabled?'block':'none';
+  
+  renderCustomQuestions();
+  
+  if(state.settings.groqKey){
+    document.getElementById('groq-status').innerHTML=`<span class="groq-badge">✓ Key saved</span>`;
+  }else{
+    document.getElementById('groq-status').innerHTML='';
+  }
+}
+
+function saveSettings(){
+  state.settings.groqKey=document.getElementById('groq-key').value.trim();
+  state.settings.notifTime=document.getElementById('notif-time').value;
+  save();
+  
+  if(state.settings.groqKey){
+    document.getElementById('groq-status').innerHTML=`<span class="groq-badge">✓ Key saved</span>`;
+  }else{
+    document.getElementById('groq-status').innerHTML='';
+  }
+}
+
+async function toggleNotifications(){
+  if(!state.settings.notifEnabled){
+    if('Notification' in window){
+      const perm=await Notification.requestPermission();
+      if(perm==='granted'){
+        state.settings.notifEnabled=true;
+        scheduleReminder();
+      }else{
+        alert('Notification permission denied. Enable in your browser/phone settings.');
+        return;
+      }
+    }else{
+      alert('Notifications not supported in this browser.');
+      return;
+    }
+  }else{
+    state.settings.notifEnabled=false;
+  }
+  save();
+  renderSettings();
+}
+
+function scheduleReminder(){
+  if(!state.settings.notifEnabled)return;
+  // Check every minute if it's reminder time
+  setInterval(()=>{
+    if(!state.settings.notifEnabled)return;
+    const now=new Date();
+    const time=`${now.getHours().toString().padStart(2,'0')}:${now.getMinutes().toString().padStart(2,'0')}`;
+    if(time===state.settings.notifTime&&!completedToday()){
+      if('serviceWorker' in navigator&&navigator.serviceWorker.controller){
+        navigator.serviceWorker.ready.then(reg=>{
+          reg.showNotification('Delivery Coach',{
+            body:`Today's focus: ${todayHabit().emoji} ${todayHabit().name}. 10 minutes.`,
+            icon:'icon-192.png',badge:'icon-192.png'
+          });
+        });
+      }else if('Notification' in window&&Notification.permission==='granted'){
+        new Notification('Delivery Coach',{
+          body:`Today's focus: ${todayHabit().emoji} ${todayHabit().name}. 10 minutes.`
+        });
+      }
+    }
+  },60000);
+}
+
+function renderCustomQuestions(){
+  const list=document.getElementById('custom-q-list');
+  const qs=state.settings.customQuestions||[];
+  if(qs.length===0){
+    list.innerHTML=`<div style="font-size:11px;color:#333;padding:8px 0">No custom questions added yet</div>`;
+    return;
+  }
+  list.innerHTML=qs.map((q,i)=>`
+    <div class="q-item">
+      <span>${q}</span>
+      <button class="q-remove" onclick="removeCustomQuestion(${i})">×</button>
+    </div>`).join('');
+}
+
+function addCustomQuestion(){
+  const input=document.getElementById('new-custom-q');
+  const q=input.value.trim();
+  if(!q)return;
+  if(!state.settings.customQuestions)state.settings.customQuestions=[];
+  state.settings.customQuestions.push(q);
+  save();
+  input.value='';
+  renderCustomQuestions();
+}
+
+function removeCustomQuestion(i){
+  state.settings.customQuestions.splice(i,1);
+  save();
+  renderCustomQuestions();
+}
+
+// ═══════════════════════════════════════
+// EXPORT & SHARE
+// ═══════════════════════════════════════
+function generateExportText(){
+  let t="DELIVERY PRACTICE — PROGRESS REPORT\n";
+  t+=`Generated: ${new Date().toLocaleDateString('en-GB')}\n`;
+  t+=`Total sessions: ${state.entries.length} | Streak: ${getStreak()} days\n`;
+  t+="════════════════════════════════\n\n";
+
+  const recent=state.entries.slice(-14);
+  recent.forEach(e=>{
+    const h=HABITS[e.habitId]||HABITS[0];
+    t+=`${h.emoji} ${e.date} — ${h.name}\n`;
+    t+=`Q: "${e.question}"\n`;
+    t+=`Duration: ${e.duration}s`;
+    if(e.analysis){
+      t+=` | Words: ${e.analysis.wordCount} | WPM: ${e.analysis.wpm}`;
+      t+=` | Fillers: ${e.analysis.fillerCount}`;
+      if(e.analysis.fillerWords?.length)t+=` (${[...new Set(e.analysis.fillerWords)].join(', ')})`;
+      t+=` | ${e.analysis.trailedOff?'Trailed off':'Landed clean'}`;
+      t+=` | Pauses: ${e.analysis.pauseCount}`;
+    }
+    t+="\n";
+    if(e.manualScores){
+      const s=e.manualScores;
+      const parts=[];
+      if(s.body)parts.push(`Body: ${s.body}/5`);
+      if(s.energy)parts.push(`Energy: ${s.energy}/5`);
+      if(s.confidence)parts.push(`Confidence: ${s.confidence}/5`);
+      if(parts.length)t+=parts.join(' | ')+'\n';
+    }
+    if(e.analysis?.groqCoaching)t+=`AI: ${e.analysis.groqCoaching}\n`;
+    if(e.notes)t+=`Notes: ${e.notes}\n`;
+    t+='\n';
+  });
+
+  if(state.entries.length>=3){
+    const last=state.entries.slice(-7);
+    const avgF=(last.reduce((a,e)=>a+(e.analysis?.fillerCount||0),0)/last.length).toFixed(1);
+    const avgD=Math.round(last.reduce((a,e)=>a+(e.duration||0),0)/last.length);
+    const trails=last.filter(e=>e.analysis?.trailedOff).length;
+    t+="════════════════════════════════\n";
+    t+=`LAST ${last.length} SESSIONS:\n`;
+    t+=`Avg fillers: ${avgF} | Avg duration: ${avgD}s | Trailed: ${trails}/${last.length}\n`;
+  }
+  return t;
+}
+
+function exportData(){
+  const text=generateExportText();
+  if(navigator.clipboard){
+    navigator.clipboard.writeText(text).then(()=>{
+      document.getElementById('export-btn').textContent='✓ COPIED';
+      setTimeout(()=>{document.getElementById('export-btn').textContent='EXPORT PROGRESS REPORT'},2000);
+    });
+  }
+}
+
+function shareData(){
+  const text=generateExportText();
+  if(navigator.share){
+    navigator.share({title:'Delivery Coach Progress',text}).catch(()=>{});
+  }else{
+    exportData(); // Fallback to clipboard
+  }
+}
+
+function resetAllData(){
+  if(confirm('Reset ALL practice data? This cannot be undone.')){
+    state.entries=[];save();
+    showScreen('home');
+  }
+}
+
+// ═══════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════
+load();
+renderHome();
+
+// Register service worker
+if('serviceWorker' in navigator){
+  navigator.serviceWorker.register('sw.js').catch(()=>{});
+}
+
+// Schedule notifications if enabled
+if(state.settings.notifEnabled)scheduleReminder();
+</script>
+</body>
+</html>
