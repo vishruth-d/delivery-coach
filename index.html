@@ -329,8 +329,8 @@ function highlightFillers(text){
     h=h.replace(r,'⟨$1⟩');
   });
   FILLER_WORDS.forEach(f=>{
-    const r=new RegExp(`(?<=^|[\\s,.])(${f})(?=[\\s,.]|$)`,'gi');
-    h=h.replace(r,'⟨$1⟩');
+    const r=new RegExp(`(^|[\\s,.])(${f})(?=[\\s,.]|$)`,'gi');
+    h=h.replace(r,'$1⟨$2⟩');
   });
   return h;
 }
@@ -354,7 +354,7 @@ function renderHome(){
   
   document.getElementById('home-stats').innerHTML=`
     <span style="color:var(--dim)">Day <span style="color:${h.color};font-weight:700">${di+1}</span></span>
-    <span style="color:var(--dim)">Streak <span style="color:${s>=3?'var(--green)':'var(--orange)';};font-weight:700">${s}</span></span>
+    <span style="color:var(--dim)">Streak <span style="color:${s>=3?'var(--green)':'var(--orange)'};font-weight:700">${s}</span></span>
     <span style="color:var(--dim)">Cycle <span style="color:#888;font-weight:700">${(di%4)+1}/4</span></span>`;
 
   document.getElementById('habit-bar').innerHTML=HABITS.map((hb,i)=>`
