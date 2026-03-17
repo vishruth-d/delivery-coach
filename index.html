@@ -213,8 +213,12 @@ details summary{font-size:11px;color:#555;cursor:pointer;margin-bottom:8px}
   <div class="card">
     <div class="label">EXPORT DATA</div>
     <p style="font-size:12px;color:#777;margin-bottom:12px;line-height:1.5">Copy your progress report and send it to Claude for feedback.</p>
-    <button class="btn" onclick="exportData()" style="background:var(--green);font-size:13px;padding:14px" id="export-btn">EXPORT PROGRESS REPORT</button>
-    <button class="btn btn-ghost" onclick="shareData()" style="margin-top:8px;font-size:12px" id="share-btn">SHARE VIA...</button>
+    <button class="btn" onclick="exportData('today')" style="background:var(--green);font-size:12px;padding:12px;margin-bottom:6px">TODAY'S SESSIONS</button>
+    <button class="btn" onclick="exportData('week')" style="background:var(--blue);font-size:12px;padding:12px;margin-bottom:6px">LAST 7 DAYS</button>
+    <button class="btn" onclick="exportData('month')" style="background:var(--purple);font-size:12px;padding:12px;margin-bottom:6px">LAST 30 DAYS</button>
+    <button class="btn" onclick="exportData('all')" style="background:var(--orange);font-size:12px;padding:12px;margin-bottom:6px">ALL TIME</button>
+    <button class="btn btn-ghost" onclick="shareData()" style="margin-top:4px;font-size:12px" id="share-btn">SHARE VIA...</button>
+    <div id="export-status" style="display:none;margin-top:8px;text-align:center;font-size:11px;color:var(--green)"></div>
   </div>
 
   <div class="card" style="border-color:rgba(255,68,68,0.15)">
@@ -273,7 +277,7 @@ const SOFT_FILLERS = ["just","actually","really","so","well","obviously","clearl
 
 let state = {entries:[],settings:{groqKey:"",notifEnabled:false,notifTime:"09:00",customQuestions:[]}};
 let recording = {active:false,timer:0,transcript:"",interim:"",pauses:[],lastSpeech:0,resultIndex:0};
-let mediaRecorder=null, stream=null, recognition=null, chunks=[], audioChunks=[], audioRecorder=null, timerInterval=null, videoUrl=null;
+let mediaRecorder=null, stream=null, recognition=null, chunks=[], timerInterval=null, videoUrl=null, videoBlob=null;
 let currentAnalysis=null, manualScores={body:null,energy:null,confidence:null};
 let previousAttempt=null; // stores previous analysis for retry comparison
 
@@ -292,9 +296,11 @@ function load(){
 // HELPERS
 // ═══════════════════════════════════════
 function today(){return new Date().toISOString().split('T')[0]}
-function dayIndex(){return state.entries.length}
+function uniqueDays(){return[...new Set(state.entries.map(e=>e.date))].length}
+function dayIndex(){return uniqueDays()}
 function todayHabit(){return HABITS[dayIndex()%4]}
 function completedToday(){return state.entries.some(e=>e.date===today())}
+function todaySessionCount(){return state.entries.filter(e=>e.date===today()).length}
 function formatTime(s){return Math.floor(s/60)+':'+(s%60).toString().padStart(2,'0')}
 
 function getStreak(){
@@ -402,7 +408,8 @@ function renderHome(){
   const h=todayHabit(),s=getStreak(),di=dayIndex();
   
   document.getElementById('home-stats').innerHTML=`
-    <span style="color:var(--dim)">Day <span style="color:${h.color};font-weight:700">${di+1}</span></span>
+    <span style="color:var(--dim)">Day <span style="color:${h.color};font-weight:700">${di+(completedToday()?0:1)}</span></span>
+    <span style="color:var(--dim)">Reps today <span style="color:#888;font-weight:700">${todaySessionCount()}</span></span>
     <span style="color:var(--dim)">Streak <span style="color:${s>=3?'var(--green)':'var(--orange)'};font-weight:700">${s}</span></span>
     <span style="color:var(--dim)">Cycle <span style="color:#888;font-weight:700">${(di%4)+1}/4</span></span>`;
 
@@ -432,7 +439,7 @@ function renderHome(){
 async function startRecording(){
   document.getElementById('camera-error').style.display='none';
   recording={active:false,timer:0,transcript:"",interim:"",pauses:[],lastSpeech:0,resultIndex:0};
-  chunks=[];audioChunks=[];videoUrl=null;
+  chunks=[];videoUrl=null;videoBlob=null;
 
   try{
     stream=await navigator.mediaDevices.getUserMedia({
@@ -475,8 +482,8 @@ async function startRecording(){
   mediaRecorder=new MediaRecorder(stream,mime?{mimeType:mime}:{});
   mediaRecorder.ondataavailable=e=>{if(e.data.size>0)chunks.push(e.data)};
   mediaRecorder.onstop=()=>{
-    const blob=new Blob(chunks,{type:mediaRecorder.mimeType||'video/webm'});
-    videoUrl=URL.createObjectURL(blob);
+    videoBlob=new Blob(chunks,{type:mediaRecorder.mimeType||'video/webm'});
+    videoUrl=URL.createObjectURL(videoBlob);
     const container=document.getElementById('video-container');
     if(container){
       container.style.display='block';
@@ -488,17 +495,6 @@ async function startRecording(){
     }
   };
   mediaRecorder.start(1000);
-
-  // Audio recorder for Whisper
-  try{
-    const audioStream=new MediaStream(stream.getAudioTracks());
-    const audioMimes=["audio/webm;codecs=opus","audio/webm","audio/mp4",""];
-    let audioMime="";
-    for(const m of audioMimes){if(!m||MediaRecorder.isTypeSupported(m)){audioMime=m;break}}
-    audioRecorder=new MediaRecorder(audioStream,audioMime?{mimeType:audioMime}:{});
-    audioRecorder.ondataavailable=e=>{if(e.data.size>0)audioChunks.push(e.data)};
-    audioRecorder.start(1000);
-  }catch(e){audioRecorder=null}
 
   // Speech recognition
   const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
@@ -552,7 +548,6 @@ function stopRecording(){
   recording.active=false;
   clearInterval(timerInterval);
   if(recognition)try{recognition.stop()}catch(e){}
-  if(audioRecorder&&audioRecorder.state!=='inactive')audioRecorder.stop();
   if(mediaRecorder&&mediaRecorder.state!=='inactive')mediaRecorder.stop();
   if(stream)stream.getTracks().forEach(t=>t.stop());
 
@@ -574,10 +569,16 @@ function stopRecording(){
   renderResults();
   showScreen('results');
 
-  // If Groq key exists, use Whisper for better transcript then run LLM analysis
-  if(state.settings.groqKey&&audioChunks.length>0){
-    const audioBlob=new Blob(audioChunks,{type:audioRecorder?.mimeType||'audio/webm'});
-    runWhisperTranscription(audioBlob,dur);
+  // Wait for videoBlob to be ready, then run Whisper on it
+  if(state.settings.groqKey){
+    const waitForBlob=setInterval(()=>{
+      if(videoBlob){
+        clearInterval(waitForBlob);
+        runWhisperTranscription(videoBlob,dur);
+      }
+    },200);
+    // Timeout after 10s
+    setTimeout(()=>clearInterval(waitForBlob),10000);
   }
 }
 
@@ -690,7 +691,8 @@ async function runWhisperTranscription(audioBlob,duration){
 
   try{
     const formData=new FormData();
-    const audioFile=new File([audioBlob],'recording.webm',{type:audioBlob.type||'audio/webm'});
+    const ext=audioBlob.type.includes('mp4')?'mp4':'webm';
+    const audioFile=new File([audioBlob],`recording.${ext}`,{type:audioBlob.type||'video/webm'});
     formData.append('file',audioFile);
     formData.append('model','whisper-large-v3');
     formData.append('language','en');
@@ -742,14 +744,14 @@ async function runWhisperTranscription(audioBlob,duration){
 
     // Now run LLM coaching analysis on the better transcript
     el.innerHTML=`<div style="padding:12px;background:rgba(74,222,128,0.06);border:1px solid rgba(74,222,128,0.15);border-radius:10px;font-size:12px;color:var(--green)">🧠 Running AI coaching analysis...</div>`;
-    await runGroqAnalysis(whisperText||recording.transcript,duration);
+    await runGroqAnalysis(whisperText||recording.transcript,duration,document.getElementById('custom-q').value.trim()||pickQuestion());
 
   }catch(e){
     el.innerHTML=`<div style="padding:12px;background:rgba(255,80,80,0.08);border:1px solid rgba(255,80,80,0.2);border-radius:10px;font-size:11px;color:#ff8888">
       Whisper transcription failed: ${e.message?.substring(0,100)||'Check API key'}</div>`;
     // Fallback to Web Speech transcript for LLM analysis
     if(currentAnalysis){
-      await runGroqAnalysis(recording.transcript,duration);
+      await runGroqAnalysis(recording.transcript,duration,document.getElementById('custom-q').value.trim()||pickQuestion());
     }
   }
 }
@@ -757,7 +759,7 @@ async function runWhisperTranscription(audioBlob,duration){
 // ═══════════════════════════════════════
 // GROQ AI COACHING ANALYSIS
 // ═══════════════════════════════════════
-async function runGroqAnalysis(text,duration){
+async function runGroqAnalysis(text,duration,question){
   const el=document.getElementById('groq-analysis');
   el.style.display='block';
   el.innerHTML=`<div style="padding:12px;background:rgba(74,222,128,0.06);border:1px solid rgba(74,222,128,0.15);border-radius:10px;font-size:12px;color:var(--green)">Analysing with AI...</div>`;
@@ -768,14 +770,18 @@ async function runGroqAnalysis(text,duration){
       headers:{'Content-Type':'application/json','Authorization':`Bearer ${state.settings.groqKey}`},
       body:JSON.stringify({
         model:'llama-3.3-70b-versatile',
-        messages:[{role:'system',content:`You are a brutally honest speech delivery coach for interview practice. The transcript below was captured with Whisper and includes all filler words (um, uh, er, like, sort of, kind of, etc).
+        messages:[{role:'system',content:`You are a brutally honest speech delivery coach for interview practice. The transcript was captured with Whisper and includes filler words (um, uh, er, like, sort of, etc).
 
-Analyse the delivery and respond ONLY in valid JSON, no markdown, no backticks, no preamble.
+The person was answering this interview question: "${question||'unknown'}"
+
+Analyse BOTH the delivery AND the content of their answer relative to the question. Your coaching should be specific to what they said and what they were trying to answer — not generic advice.
+
+Respond ONLY in valid JSON, no markdown, no backticks, no preamble.
 
 JSON format:
-{"fillers":{"missed":["any filler words or hedging phrases the automated counter might have missed"]},"ending":{"strong":true/false,"note":"Why in 10 words max"},"repetition":{"score":1,"note":"Did they repeat the same point? 10 words max. 1=very repetitive, 5=no repetition"},"overexplaining":{"score":1,"note":"Did they make the point and stop? 1=rambled, 5=concise"},"confidence":{"score":1,"note":"Did they sound sure of themselves? 1=uncertain, 5=commanding"},"coaching":"One specific, actionable sentence under 20 words. Be direct. No generic advice."}`},
-          {role:'user',content:`Transcript (${duration} seconds):\n${text}`}],
-        temperature:0.2,max_tokens:400
+{"fillers":{"missed":["any filler words or hedging phrases the automated counter might have missed"]},"ending":{"strong":true/false,"note":"Why in 10 words max"},"repetition":{"score":1,"note":"Did they repeat the same point? 10 words max. 1=very repetitive, 5=no repetition"},"overexplaining":{"score":1,"note":"Did they make the point and stop? 1=rambled, 5=concise"},"confidence":{"score":1,"note":"Did they sound sure of themselves? 1=uncertain, 5=commanding"},"content":{"score":1,"note":"Did they actually answer the question well? 15 words max. 1=missed the point, 5=nailed it"},"coaching":"One specific actionable sentence under 25 words referencing what they actually said. Be direct."}`},
+          {role:'user',content:`Question: "${question||'unknown'}"\nTranscript (${duration} seconds):\n${text}`}],
+        temperature:0.2,max_tokens:500
       })
     });
 
@@ -800,6 +806,7 @@ JSON format:
           <div style="padding:6px 8px;background:rgba(0,0,0,0.2);border-radius:6px;color:#888">Repetition: <span style="color:${(result.repetition?.score||0)>=4?'var(--green)':(result.repetition?.score||0)>=2?'var(--orange)':'var(--red)'};font-weight:700">${result.repetition?.score||'?'}/5</span></div>
           <div style="padding:6px 8px;background:rgba(0,0,0,0.2);border-radius:6px;color:#888">Conciseness: <span style="color:${(result.overexplaining?.score||0)>=4?'var(--green)':(result.overexplaining?.score||0)>=2?'var(--orange)':'var(--red)'};font-weight:700">${result.overexplaining?.score||'?'}/5</span></div>
           <div style="padding:6px 8px;background:rgba(0,0,0,0.2);border-radius:6px;color:#888">Confidence: <span style="color:${(result.confidence?.score||0)>=4?'var(--green)':(result.confidence?.score||0)>=2?'var(--orange)':'var(--red)'};font-weight:700">${result.confidence?.score||'?'}/5</span></div>
+          <div style="padding:6px 8px;background:rgba(0,0,0,0.2);border-radius:6px;color:#888;grid-column:span 2">Content: <span style="color:${(result.content?.score||0)>=4?'var(--green)':(result.content?.score||0)>=2?'var(--orange)':'var(--red)'};font-weight:700">${result.content?.score||'?'}/5</span> <span style="color:#555;font-size:10px">${result.content?.note||''}</span></div>
         </div>
         ${result.ending?.note?`<div style="font-size:10px;color:#555;margin-top:8px">Ending: ${result.ending.note}</div>`:''}
         ${result.repetition?.note?`<div style="font-size:10px;color:#555;margin-top:3px">Repetition: ${result.repetition.note}</div>`:''}
@@ -848,7 +855,9 @@ function logSession(){
       groqEndingStrong:currentAnalysis.groq?.ending?.strong??null,
       groqRepetition:currentAnalysis.groq?.repetition?.score||null,
       groqConciseness:currentAnalysis.groq?.overexplaining?.score||null,
-      groqConfidence:currentAnalysis.groq?.confidence?.score||null
+      groqConfidence:currentAnalysis.groq?.confidence?.score||null,
+      groqContent:currentAnalysis.groq?.content?.score||null,
+      groqContentNote:currentAnalysis.groq?.content?.note||null
     }:null,
     manualScores:{...manualScores},
     notes:document.getElementById('session-notes').value,
@@ -862,9 +871,9 @@ function logSession(){
   previousAttempt=null;
 
   const h=todayHabit();
-  const next=HABITS[(state.entries.length)%4];
-  document.getElementById('logged-info').textContent=`Day ${state.entries.length} complete. Streak: ${getStreak()}.`;
-  document.getElementById('logged-next').textContent=`Tomorrow: ${next.emoji} ${next.name}`;
+  document.getElementById('logged-info').textContent=`Day ${uniqueDays()}, rep ${todaySessionCount()} done. Streak: ${getStreak()}.`;
+  const nextHabit=HABITS[(uniqueDays())%4];
+  document.getElementById('logged-next').textContent=`Tomorrow: ${nextHabit.emoji} ${nextHabit.name}`;
   document.getElementById('logged-back-btn').style.background=h.color;
   showScreen('logged');
 }
@@ -1216,14 +1225,44 @@ function removeCustomQuestion(i){
 // ═══════════════════════════════════════
 // EXPORT & SHARE
 // ═══════════════════════════════════════
-function generateExportText(){
-  let t="DELIVERY PRACTICE — PROGRESS REPORT\n";
+function filterEntries(range){
+  const now=new Date();
+  const todayStr=today();
+  if(range==='today')return state.entries.filter(e=>e.date===todayStr);
+  if(range==='week'){
+    const d=new Date(now);d.setDate(d.getDate()-7);
+    const cutoff=d.toISOString().split('T')[0];
+    return state.entries.filter(e=>e.date>=cutoff);
+  }
+  if(range==='month'){
+    const d=new Date(now);d.setDate(d.getDate()-30);
+    const cutoff=d.toISOString().split('T')[0];
+    return state.entries.filter(e=>e.date>=cutoff);
+  }
+  return state.entries;
+}
+
+function rangeName(range){
+  if(range==='today')return"Today's Sessions";
+  if(range==='week')return'Last 7 Days';
+  if(range==='month')return'Last 30 Days';
+  return'All Time';
+}
+
+function generateExportText(range){
+  const entries=filterEntries(range);
+  const label=rangeName(range);
+  let t=`DELIVERY COACH — ${label.toUpperCase()}\n`;
   t+=`Generated: ${new Date().toLocaleDateString('en-GB')}\n`;
-  t+=`Total sessions: ${state.entries.length} | Streak: ${getStreak()} days\n`;
+  t+=`Sessions in range: ${entries.length} | Total all-time: ${state.entries.length} | Streak: ${getStreak()} days | Unique days: ${uniqueDays()}\n`;
   t+="════════════════════════════════\n\n";
 
-  const recent=state.entries.slice(-14);
-  recent.forEach(e=>{
+  if(entries.length===0){
+    t+="No sessions in this range.\n";
+    return t;
+  }
+
+  entries.forEach(e=>{
     const h=HABITS[e.habitId]||HABITS[0];
     t+=`${h.emoji} ${e.date} — ${h.name}${e.analysis?.whisperUsed?' [Whisper]':''}\n`;
     t+=`Q: "${e.question}"\n`;
@@ -1251,47 +1290,54 @@ function generateExportText(){
       if(e.analysis.groqRepetition)aiParts.push(`Repetition: ${e.analysis.groqRepetition}/5`);
       if(e.analysis.groqConciseness)aiParts.push(`Conciseness: ${e.analysis.groqConciseness}/5`);
       if(e.analysis.groqConfidence)aiParts.push(`AI Confidence: ${e.analysis.groqConfidence}/5`);
+      if(e.analysis.groqContent)aiParts.push(`Content: ${e.analysis.groqContent}/5`);
       if(aiParts.length)t+='AI: '+aiParts.join(' | ')+'\n';
       if(e.analysis.groqCoaching)t+=`Coaching: ${e.analysis.groqCoaching}\n`;
+      if(e.analysis.groqContentNote)t+=`Content note: ${e.analysis.groqContentNote}\n`;
     }
     if(e.notes)t+=`Notes: ${e.notes}\n`;
-    if(e.transcript)t+=`Transcript: ${e.transcript.substring(0,200)}${e.transcript.length>200?'...':''}\n`;
+    if(e.transcript)t+=`Transcript: ${e.transcript.substring(0,300)}${e.transcript.length>300?'...':''}\n`;
     t+='\n';
   });
 
-  if(state.entries.length>=3){
-    const last=state.entries.slice(-7);
-    const avgF=(last.reduce((a,e)=>a+(e.analysis?.fillerCount||0),0)/last.length).toFixed(1);
-    const avgSF=(last.reduce((a,e)=>a+(e.analysis?.softFillerCount||0),0)/last.length).toFixed(1);
-    const avgD=Math.round(last.reduce((a,e)=>a+(e.duration||0),0)/last.length);
-    const trails=last.filter(e=>e.analysis?.trailedOff).length;
-    const avgConf=last.filter(e=>e.analysis?.groqConfidence).length>0?
-      (last.reduce((a,e)=>a+(e.analysis?.groqConfidence||0),0)/last.filter(e=>e.analysis?.groqConfidence).length).toFixed(1):'N/A';
+  if(entries.length>=3){
+    const avgF=(entries.reduce((a,e)=>a+(e.analysis?.fillerCount||0),0)/entries.length).toFixed(1);
+    const avgSF=(entries.reduce((a,e)=>a+(e.analysis?.softFillerCount||0),0)/entries.length).toFixed(1);
+    const avgD=Math.round(entries.reduce((a,e)=>a+(e.duration||0),0)/entries.length);
+    const trails=entries.filter(e=>e.analysis?.trailedOff).length;
+    const confEntries=entries.filter(e=>e.analysis?.groqConfidence);
+    const avgConf=confEntries.length>0?(confEntries.reduce((a,e)=>a+e.analysis.groqConfidence,0)/confEntries.length).toFixed(1):'N/A';
+    const contentEntries=entries.filter(e=>e.analysis?.groqContent);
+    const avgContent=contentEntries.length>0?(contentEntries.reduce((a,e)=>a+e.analysis.groqContent,0)/contentEntries.length).toFixed(1):'N/A';
     t+="════════════════════════════════\n";
-    t+=`LAST ${last.length} SESSIONS SUMMARY:\n`;
+    t+=`SUMMARY (${entries.length} sessions):\n`;
     t+=`Avg hard fillers: ${avgF} | Avg soft fillers: ${avgSF}\n`;
-    t+=`Avg duration: ${avgD}s | Trailed: ${trails}/${last.length}\n`;
-    t+=`Avg AI confidence: ${avgConf}/5\n`;
+    t+=`Avg duration: ${avgD}s | Trailed: ${trails}/${entries.length}\n`;
+    t+=`Avg AI confidence: ${avgConf}/5 | Avg content: ${avgContent}/5\n`;
   }
   return t;
 }
 
-function exportData(){
-  const text=generateExportText();
+function exportData(range){
+  range=range||'all';
+  const text=generateExportText(range);
   if(navigator.clipboard){
     navigator.clipboard.writeText(text).then(()=>{
-      document.getElementById('export-btn').textContent='✓ COPIED';
-      setTimeout(()=>{document.getElementById('export-btn').textContent='EXPORT PROGRESS REPORT'},2000);
+      const el=document.getElementById('export-status');
+      el.style.display='block';
+      el.textContent=`✓ ${rangeName(range)} copied to clipboard`;
+      setTimeout(()=>{el.style.display='none'},2500);
     });
   }
 }
 
 function shareData(){
-  const text=generateExportText();
+  const text=generateExportText('week');
+  const title=`Delivery Coach — ${rangeName('week')}`;
   if(navigator.share){
-    navigator.share({title:'Delivery Coach Progress',text}).catch(()=>{});
+    navigator.share({title,text}).catch(()=>{});
   }else{
-    exportData(); // Fallback to clipboard
+    exportData('week');
   }
 }
 
