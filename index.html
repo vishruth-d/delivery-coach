@@ -85,8 +85,13 @@ details summary{font-size:11px;color:#555;cursor:pointer;margin-bottom:8px}
 <!-- ═══════ RECORDING ═══════ -->
 <div id="record" class="screen">
 <div id="rec-screen" style="position:fixed;top:0;left:0;right:0;bottom:0;background:#000;display:flex;flex-direction:column">
-  <div style="flex:1;position:relative;overflow:hidden;min-height:0">
-    <video id="preview" autoplay playsinline muted style="position:absolute;top:0;left:0;width:100%;height:100%;object-fit:contain;background:#000;transform:scaleX(-1)"></video>
+  <!-- Countdown overlay -->
+  <div id="countdown-overlay" style="display:none;position:absolute;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.8);z-index:10;display:none;align-items:center;justify-content:center">
+    <span id="countdown-num" style="font-size:80px;font-weight:900;color:#fff"></span>
+  </div>
+  <!-- Video area - fixed 65% height -->
+  <div style="height:65%;position:relative;overflow:hidden;flex-shrink:0">
+    <video id="preview" autoplay playsinline muted style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%) scaleX(-1);min-width:100%;min-height:100%;width:auto;height:auto;object-fit:cover"></video>
     <div style="position:absolute;top:0;left:0;right:0;padding:max(env(safe-area-inset-top),20px) 16px 20px;background:linear-gradient(180deg,rgba(0,0,0,0.7),transparent);z-index:2">
       <div style="display:flex;justify-content:space-between;align-items:center">
         <div class="pill" style="background:rgba(255,68,68,0.15);color:#ff4444;border:1px solid rgba(255,68,68,0.3)">
@@ -96,12 +101,14 @@ details summary{font-size:11px;color:#555;cursor:pointer;margin-bottom:8px}
       </div>
     </div>
   </div>
-  <div style="flex-shrink:0;max-height:25%;overflow:auto;padding:12px 16px;background:rgba(0,0,0,0.9)">
+  <!-- Transcript area - independent scroll, won't affect video -->
+  <div style="flex:1;overflow-y:auto;padding:12px 16px;background:rgba(0,0,0,0.95);min-height:0">
     <div id="live-transcript" style="font-size:13px;color:#ddd;line-height:1.5">
       <span style="color:#555;font-style:italic">Start speaking...</span>
     </div>
   </div>
-  <div style="padding:16px 16px max(env(safe-area-inset-bottom),16px);background:var(--bg);display:flex;justify-content:center;flex-shrink:0">
+  <!-- Stop button -->
+  <div style="padding:14px 16px max(env(safe-area-inset-bottom),14px);background:var(--bg);display:flex;justify-content:center;flex-shrink:0">
     <button class="stop-btn" onclick="stopRecording()"><div class="stop-inner"></div></button>
   </div>
 </div>
@@ -115,6 +122,7 @@ details summary{font-size:11px;color:#555;cursor:pointer;margin-bottom:8px}
     <span id="result-time" style="font-size:12px;color:#555"></span>
   </div>
   <div id="video-container" style="margin-bottom:16px;border-radius:12px;overflow:hidden"></div>
+  <div id="improvement-tips" style="display:none" class="card"></div>
   <div id="auto-analysis" class="card" style="display:none">
     <div class="label">SPEECH ANALYSIS</div>
     <div id="stats-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px"></div>
@@ -133,6 +141,7 @@ details summary{font-size:11px;color:#555;cursor:pointer;margin-bottom:8px}
     <textarea id="session-notes" placeholder="Quick notes — what did you notice watching back?" rows="3"></textarea>
   </div>
   <button class="btn" id="log-btn" onclick="logSession()">LOG THIS SESSION</button>
+  <button class="btn" id="retry-btn" onclick="retryRecording()" style="margin-top:8px;background:var(--blue)">↻ RETRY — RECORD AGAIN</button>
   <button class="btn btn-ghost" onclick="discardSession()" style="margin-top:8px">Discard and go back</button>
 </div>
 </div>
@@ -266,6 +275,7 @@ let state = {entries:[],settings:{groqKey:"",notifEnabled:false,notifTime:"09:00
 let recording = {active:false,timer:0,transcript:"",interim:"",pauses:[],lastSpeech:0,resultIndex:0};
 let mediaRecorder=null, stream=null, recognition=null, chunks=[], audioChunks=[], audioRecorder=null, timerInterval=null, videoUrl=null;
 let currentAnalysis=null, manualScores={body:null,energy:null,confidence:null};
+let previousAttempt=null; // stores previous analysis for retry comparison
 
 // ═══════════════════════════════════════
 // PERSISTENCE
@@ -421,12 +431,12 @@ function renderHome(){
 // ═══════════════════════════════════════
 async function startRecording(){
   document.getElementById('camera-error').style.display='none';
-  recording={active:true,timer:0,transcript:"",interim:"",pauses:[],lastSpeech:Date.now(),resultIndex:0};
+  recording={active:false,timer:0,transcript:"",interim:"",pauses:[],lastSpeech:0,resultIndex:0};
   chunks=[];audioChunks=[];videoUrl=null;
 
   try{
     stream=await navigator.mediaDevices.getUserMedia({
-      video:{facingMode:"user",width:{ideal:1280},height:{ideal:720},zoom:1.0},audio:true
+      video:{facingMode:"user",width:{ideal:1280},height:{ideal:720}},audio:true
     });
   }catch(e){
     document.getElementById('camera-error').textContent=e.message||'Camera access denied. Check browser settings.';
@@ -434,11 +444,28 @@ async function startRecording(){
     return;
   }
 
+  // Show recording screen with preview
+  showScreen('record');
   const preview=document.getElementById('preview');
   preview.srcObject=stream;
   preview.play().catch(()=>{});
+  document.getElementById('live-transcript').innerHTML='<span style="color:#555;font-style:italic">Get ready...</span>';
 
-  // Reset transcript display
+  // 3-second countdown
+  const overlay=document.getElementById('countdown-overlay');
+  const num=document.getElementById('countdown-num');
+  overlay.style.display='flex';
+  for(let i=3;i>=1;i--){
+    num.textContent=i;
+    await new Promise(r=>setTimeout(r,1000));
+  }
+  num.textContent='Go!';
+  await new Promise(r=>setTimeout(r,500));
+  overlay.style.display='none';
+
+  // Now start recording
+  recording.active=true;
+  recording.lastSpeech=Date.now();
   document.getElementById('live-transcript').innerHTML='<span style="color:#555;font-style:italic">Start speaking...</span>';
 
   // Media recorder
@@ -454,13 +481,15 @@ async function startRecording(){
     if(container){
       container.style.display='block';
       container.innerHTML=`
-        <video controls playsinline src="${videoUrl}" style="width:100%;border-radius:12px;transform:scaleX(-1)"></video>
+        <div style="transform:scaleX(-1);border-radius:12px;overflow:hidden">
+          <video id="vid-playback" controls playsinline src="${videoUrl}" style="width:100%;display:block"></video>
+        </div>
         <div style="font-size:10px;color:#444;text-align:center;margin-top:6px">Watch back — check body language, posture, eye contact</div>`;
     }
   };
   mediaRecorder.start(1000);
 
-  // Separate audio recorder for Whisper transcription
+  // Audio recorder for Whisper
   try{
     const audioStream=new MediaStream(stream.getAudioTracks());
     const audioMimes=["audio/webm;codecs=opus","audio/webm","audio/mp4",""];
@@ -510,7 +539,6 @@ async function startRecording(){
   const h=todayHabit();
   document.getElementById('rec-habit-pill').innerHTML=`${h.emoji} ${h.short}`;
   document.getElementById('rec-habit-pill').style.cssText=`background:${h.color}22;color:${h.color};border:1px solid ${h.color}44;padding:6px 14px;border-radius:20px;font-size:12px;font-weight:700`;
-  showScreen('record');
 }
 
 function updateLiveTranscript(){
@@ -568,7 +596,9 @@ function renderResults(){
       </div>`;
   }else{
     document.getElementById('video-container').innerHTML=`
-      <video id="playback" controls playsinline src="${videoUrl}" style="width:100%;border-radius:12px;transform:scaleX(-1)"></video>
+      <div style="transform:scaleX(-1);border-radius:12px;overflow:hidden">
+        <video controls playsinline src="${videoUrl}" style="width:100%;display:block"></video>
+      </div>
       <div style="font-size:10px;color:#444;text-align:center;margin-top:6px">Watch back — check body language, posture, eye contact</div>`;
   }
 
@@ -616,9 +646,11 @@ function renderResults(){
     document.getElementById('transcript-view').textContent=a.highlighted;
     document.getElementById('duration-warn').style.display=a.tooLong?'block':'none';
     document.getElementById('groq-analysis').style.display='none';
+    renderImprovementTips();
   }else{
     document.getElementById('auto-analysis').style.display='none';
     document.getElementById('no-transcript').style.display='block';
+    document.getElementById('improvement-tips').style.display='none';
   }
 
   // Manual scores
@@ -658,14 +690,12 @@ async function runWhisperTranscription(audioBlob,duration){
 
   try{
     const formData=new FormData();
-    // Whisper needs a file extension — rename blob
-    const audioFile=new File([audioBlob],'audio.webm',{type:audioBlob.type||'audio/webm'});
+    const audioFile=new File([audioBlob],'recording.webm',{type:audioBlob.type||'audio/webm'});
     formData.append('file',audioFile);
     formData.append('model','whisper-large-v3');
     formData.append('language','en');
-    formData.append('response_format','verbose_json');
-    formData.append('temperature','0');
-    formData.append('prompt','Um, uh, er, erm, like, you know, sort of, kind of, I guess, basically, right, yeah, so yeah, I mean, honestly, actually. Include every um, uh, er, erm, hesitation, false start, and filler word exactly as spoken. Do not clean up speech.');
+    formData.append('response_format','json');
+    formData.append('prompt','Um, uh, er, erm, ah, like, you know, sort of, kind of, I guess, basically, right, yeah, so yeah, I mean, honestly, actually, I think, and stuff. Transcribe verbatim including all hesitations, filler words, false starts, and disfluencies. Never remove or clean up ums, uhs, or repeated words.');
 
     const res=await fetch('https://api.groq.com/openai/v1/audio/transcriptions',{
       method:'POST',
@@ -693,18 +723,21 @@ async function runWhisperTranscription(audioBlob,duration){
 
       // Re-render stats with Whisper data
       renderResults();
-      // Show whisper badge
+      // Show whisper badge with preview
       const badge=document.getElementById('auto-analysis');
       if(badge){
         const existing=badge.querySelector('.whisper-badge');
         if(!existing){
           const b=document.createElement('div');
           b.className='whisper-badge';
-          b.style.cssText='font-size:9px;padding:3px 8px;border-radius:10px;background:rgba(74,222,128,0.1);color:var(--green);border:1px solid rgba(74,222,128,0.2);display:inline-block;margin-bottom:12px';
-          b.textContent='✓ WHISPER TRANSCRIPT — FILLER WORDS INCLUDED';
+          b.style.cssText='font-size:9px;padding:6px 10px;border-radius:10px;background:rgba(74,222,128,0.08);color:var(--green);border:1px solid rgba(74,222,128,0.2);display:block;margin-bottom:12px;line-height:1.5';
+          b.innerHTML=`✓ WHISPER V3 TRANSCRIPT<br><span style="color:#888;font-size:9px">${whisperText.substring(0,80)}${whisperText.length>80?'...':''}</span>`;
           badge.insertBefore(b,badge.children[1]);
         }
       }
+    }else{
+      // Whisper returned empty/short — show warning
+      el.innerHTML=`<div style="padding:12px;background:rgba(255,163,107,0.08);border:1px solid rgba(255,163,107,0.2);border-radius:10px;font-size:11px;color:var(--orange)">⚠️ Whisper returned: "${whisperText||'(empty)'}". Using browser transcript instead.</div>`;
     }
 
     // Now run LLM coaching analysis on the better transcript
@@ -786,7 +819,13 @@ JSON format:
 // ═══════════════════════════════════════
 // LOG SESSION
 // ═══════════════════════════════════════
+function stopAllVideo(){
+  const vids=document.querySelectorAll('video');
+  vids.forEach(v=>{try{v.pause();v.src=''}catch(e){}});
+}
+
 function logSession(){
+  stopAllVideo();
   const q=document.getElementById('custom-q').value.trim()||pickQuestion();
   const entry={
     date:today(),
@@ -820,6 +859,7 @@ function logSession(){
   save();
 
   if(videoUrl){URL.revokeObjectURL(videoUrl);videoUrl=null}
+  previousAttempt=null;
 
   const h=todayHabit();
   const next=HABITS[(state.entries.length)%4];
@@ -829,16 +869,104 @@ function logSession(){
   showScreen('logged');
 }
 
-function discardSession(){
+function retryRecording(){
+  stopAllVideo();
+  // Save current attempt for comparison
+  if(currentAnalysis){
+    previousAttempt={
+      fillerCount:currentAnalysis.fillers.count,
+      softCount:currentAnalysis.fillers.softCount||0,
+      words:currentAnalysis.words,
+      wpm:currentAnalysis.wpm,
+      trailing:currentAnalysis.trailing.trailing,
+      duration:currentAnalysis.duration
+    };
+  }
   if(videoUrl){URL.revokeObjectURL(videoUrl);videoUrl=null}
   currentAnalysis=null;
+  startRecording();
+}
+
+function discardSession(){
+  stopAllVideo();
+  if(videoUrl){URL.revokeObjectURL(videoUrl);videoUrl=null}
+  currentAnalysis=null;
+  previousAttempt=null;
   showScreen('home');
 }
 
 function resetAndHome(){
   currentAnalysis=null;
+  previousAttempt=null;
   document.getElementById('custom-q').value='';
   showScreen('home');
+}
+
+function renderImprovementTips(){
+  const el=document.getElementById('improvement-tips');
+  if(!currentAnalysis){el.style.display='none';return}
+  
+  const tips=[];
+  const a=currentAnalysis;
+  
+  // Filler-specific tips
+  const topFillers=[...new Set(a.fillers.found)].slice(0,3);
+  if(topFillers.some(f=>['um','uh','er','erm','ah'].includes(f))){
+    tips.push({icon:'🤐',tip:'Replace "um/uh" with a pause. Close your mouth for half a second. Silence sounds confident, fillers sound uncertain.',priority:1});
+  }
+  if(topFillers.some(f=>['sort of','kind of'].includes(f))){
+    tips.push({icon:'🎯',tip:'"Sort of" and "kind of" weaken your point. Either commit to what you\'re saying or don\'t say it. Drop the hedge.',priority:1});
+  }
+  if(topFillers.some(f=>['i think','i guess','i feel like'].includes(f))){
+    tips.push({icon:'💪',tip:'Replace "I think" with a direct statement. Instead of "I think the best approach is..." say "The best approach is..."',priority:1});
+  }
+  if(topFillers.some(f=>['you know','i mean','basically'].includes(f))){
+    tips.push({icon:'✂️',tip:'"You know" and "basically" add zero information. Cut them entirely. Your sentence works without them.',priority:2});
+  }
+  if(topFillers.some(f=>['like'].includes(f))){
+    tips.push({icon:'🚫',tip:'"Like" as filler makes you sound younger and less authoritative. Pause instead. The pause makes you sound more thoughtful.',priority:2});
+  }
+  if(a.trailing.trailing){
+    tips.push({icon:'🎯',tip:'Your answer trailed off. Practice this: decide your last sentence BEFORE you say it. Make it short and declarative. Then stop.',priority:1});
+  }
+  if(a.tooLong){
+    tips.push({icon:'⏱️',tip:'Over 2 minutes. Most interview answers should be 60-90 seconds. Before answering, think: what\'s my point in 2 sentences? Then add detail.',priority:2});
+  }
+  if(a.fillers.repeats>0){
+    tips.push({icon:'🔁',tip:'You repeated words (stuttered). This usually happens when you\'re thinking ahead while talking. Slow down — pause instead of repeating.',priority:2});
+  }
+  
+  if(tips.length===0){
+    el.style.display='none';
+    return;
+  }
+  
+  tips.sort((a,b)=>a.priority-b.priority);
+  el.style.display='block';
+  el.innerHTML=`
+    <div class="label" style="color:var(--blue)">HOW TO IMPROVE</div>
+    ${tips.slice(0,3).map(t=>`
+      <div style="display:flex;gap:10px;margin-bottom:10px;padding:10px;background:rgba(107,223,255,0.05);border-radius:10px;border:1px solid rgba(107,223,255,0.1)">
+        <span style="font-size:18px;flex-shrink:0">${t.icon}</span>
+        <span style="font-size:12px;color:#aaa;line-height:1.5">${t.tip}</span>
+      </div>`).join('')}`;
+
+  // Retry comparison
+  if(previousAttempt){
+    const prev=previousAttempt;
+    const fillerDiff=a.fillers.count-prev.fillerCount;
+    const wordDiff=a.words-prev.words;
+    const better=fillerDiff<0&&!a.trailing.trailing;
+    el.innerHTML+=`
+      <div style="margin-top:12px;padding:12px;background:rgba(${better?'74,222,128':'255,107,107'},0.08);border:1px solid rgba(${better?'74,222,128':'255,107,107'},0.2);border-radius:10px">
+        <div style="font-size:11px;font-weight:700;color:${better?'var(--green)':'var(--red)');margin-bottom:6px">${better?'↑ IMPROVED':'→ KEEP PRACTICING'}</div>
+        <div style="font-size:11px;color:#888;line-height:1.6">
+          Fillers: ${prev.fillerCount} → ${a.fillers.count} (${fillerDiff>0?'+':''}${fillerDiff})<br>
+          Words: ${prev.words} → ${a.words} (${wordDiff>0?'+':''}${wordDiff})<br>
+          Ending: ${prev.trailing?'Trailed':'Clean'} → ${a.trailing.trailing?'Trailed':'Clean'}
+        </div>
+      </div>`;
+  }
 }
 
 // ═══════════════════════════════════════
@@ -859,24 +987,91 @@ function renderHistory(){
   if(state.entries.length>=3){
     const last7=state.entries.slice(-7);
     const avgF=(last7.reduce((a,e)=>a+(e.analysis?.fillerCount||0),0)/last7.length).toFixed(1);
+    const avgSF=(last7.reduce((a,e)=>a+(e.analysis?.softFillerCount||0),0)/last7.length).toFixed(1);
     const avgD=Math.round(last7.reduce((a,e)=>a+(e.duration||0),0)/last7.length);
     const trails=last7.filter(e=>e.analysis?.trailedOff).length;
+    const confEntries=last7.filter(e=>e.analysis?.groqConfidence);
+    const avgConf=confEntries.length>0?(confEntries.reduce((a,e)=>a+e.analysis.groqConfidence,0)/confEntries.length).toFixed(1):'—';
     summary.style.display='block';
     summary.innerHTML=`
       <div class="label">LAST ${last7.length} SESSIONS</div>
-      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:8px">
         <div class="stat-box"><div class="stat-num" style="font-size:18px;color:${avgF>4?'var(--red)':avgF>2?'var(--orange)':'var(--green)'}">${avgF}</div><div class="stat-label">AVG FILLERS</div></div>
         <div class="stat-box"><div class="stat-num" style="font-size:18px">${avgD}s</div><div class="stat-label">AVG TIME</div></div>
         <div class="stat-box"><div class="stat-num" style="font-size:18px;color:${trails>3?'var(--red)':'var(--green)'}">${trails}/${last7.length}</div><div class="stat-label">TRAILED</div></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        <div class="stat-box"><div class="stat-num" style="font-size:18px;color:var(--dim)">${avgSF}</div><div class="stat-label">AVG SOFT</div></div>
+        <div class="stat-box"><div class="stat-num" style="font-size:18px;color:${avgConf!=='—'&&avgConf>=4?'var(--green)':avgConf!=='—'&&avgConf>=2.5?'var(--orange)':'var(--dim)'}">${avgConf}</div><div class="stat-label">AI CONFIDENCE</div></div>
       </div>`;
   }else{summary.style.display='none'}
 
-  list.innerHTML=[...state.entries].reverse().map((e,i)=>{
+  list.innerHTML=[...state.entries].reverse().map((e,idx)=>{
     const h=HABITS[e.habitId]||HABITS[0];
-    return `<div class="card history-item">
+    const realIdx=state.entries.length-1-idx;
+
+    // Build expanded content
+    let expanded='';
+
+    // Manual scores
+    if(e.manualScores&&(e.manualScores.body||e.manualScores.energy||e.manualScores.confidence)){
+      const parts=[];
+      if(e.manualScores.body)parts.push(`Body: ${e.manualScores.body}/5`);
+      if(e.manualScores.energy)parts.push(`Energy: ${e.manualScores.energy}/5`);
+      if(e.manualScores.confidence)parts.push(`Confidence: ${e.manualScores.confidence}/5`);
+      expanded+=`<div style="font-size:10px;color:#666;margin-top:8px">Self: ${parts.join(' · ')}</div>`;
+    }
+
+    // AI scores
+    if(e.analysis&&(e.analysis.groqRepetition||e.analysis.groqConciseness||e.analysis.groqConfidence)){
+      const parts=[];
+      if(e.analysis.groqEndingStrong!==null)parts.push(`Ending: ${e.analysis.groqEndingStrong?'✓':'✗'}`);
+      if(e.analysis.groqRepetition)parts.push(`Repetition: ${e.analysis.groqRepetition}/5`);
+      if(e.analysis.groqConciseness)parts.push(`Concise: ${e.analysis.groqConciseness}/5`);
+      if(e.analysis.groqConfidence)parts.push(`Confidence: ${e.analysis.groqConfidence}/5`);
+      expanded+=`<div style="font-size:10px;color:var(--blue);margin-top:4px">AI: ${parts.join(' · ')}</div>`;
+    }
+
+    // Coaching
+    if(e.analysis?.groqCoaching){
+      expanded+=`<div style="font-size:10px;color:var(--green);margin-top:6px;padding:8px;background:rgba(74,222,128,0.05);border-radius:6px">💡 ${e.analysis.groqCoaching}</div>`;
+    }
+
+    // Filler breakdown
+    if(e.analysis?.fillerWords?.length>0){
+      const unique=[...new Set(e.analysis.fillerWords)];
+      expanded+=`<div style="font-size:10px;color:#888;margin-top:6px">Hard fillers: ${unique.map(f=>{
+        const c=e.analysis.fillerWords.filter(x=>x===f).length;
+        return f+(c>1?' ×'+c:'');
+      }).join(', ')}</div>`;
+    }
+    if(e.analysis?.softFillerWords?.length>0){
+      const unique=[...new Set(e.analysis.softFillerWords)];
+      expanded+=`<div style="font-size:10px;color:#555;margin-top:2px">Soft fillers: ${unique.map(f=>{
+        const c=e.analysis.softFillerWords.filter(x=>x===f).length;
+        return f+(c>1?' ×'+c:'');
+      }).join(', ')}</div>`;
+    }
+
+    // Notes
+    if(e.notes){
+      expanded+=`<div style="font-size:10px;color:#888;margin-top:6px;padding:8px;background:rgba(255,255,255,0.03);border-radius:6px;border-left:2px solid var(--dim)">📝 ${e.notes}</div>`;
+    }
+
+    // Transcript
+    if(e.transcript){
+      expanded+=`<details style="margin-top:8px"><summary style="font-size:10px;color:#444;cursor:pointer">View transcript</summary>
+        <div style="font-size:10px;color:#555;line-height:1.5;padding:8px;background:rgba(0,0,0,0.3);border-radius:6px;margin-top:4px;max-height:150px;overflow:auto">${e.transcript}</div></details>`;
+    }
+
+    return `<div class="card history-item" onclick="toggleHistoryItem(${realIdx})" style="cursor:pointer">
       <div style="display:flex;justify-content:space-between;margin-bottom:4px">
         <span style="font-size:11px;color:${h.color};font-weight:700">${h.emoji} ${h.name}</span>
-        <span style="font-size:10px;color:#333">${e.date}</span>
+        <div style="display:flex;align-items:center;gap:6px">
+          ${e.analysis?.whisperUsed?'<span style="font-size:8px;color:var(--green)">W</span>':''}
+          <span style="font-size:10px;color:#333">${e.date}</span>
+          <span id="chevron-${realIdx}" style="font-size:10px;color:#333;transition:transform 0.2s">▼</span>
+        </div>
       </div>
       <div style="font-size:11px;color:#555;font-style:italic;margin-bottom:4px">"${e.question}"</div>
       <div style="display:flex;gap:10px;font-size:10px;flex-wrap:wrap">
@@ -885,12 +1080,27 @@ function renderHistory(){
           <span style="color:${e.analysis.fillerCount>5?'var(--red)':e.analysis.fillerCount>2?'var(--orange)':'var(--green)'}">${e.analysis.fillerCount} fillers</span>
           <span style="color:${e.analysis.trailedOff?'var(--red)':'var(--green)'}">${e.analysis.trailedOff?'trailed':'landed'}</span>
           <span style="color:var(--dim)">${e.analysis.wordCount}w</span>
+          <span style="color:var(--dim)">${e.analysis.wpm}wpm</span>
         `:''}
       </div>
-      ${e.analysis?.groqCoaching?`<div style="font-size:10px;color:var(--green);margin-top:6px">💡 ${e.analysis.groqCoaching}</div>`:''}
-      ${e.notes?`<div style="font-size:10px;color:#444;margin-top:4px">${e.notes}</div>`:''}
+      <div id="history-detail-${realIdx}" style="display:none;border-top:1px solid rgba(255,255,255,0.06);margin-top:8px;padding-top:8px">
+        ${expanded}
+      </div>
     </div>`;
   }).join('');
+}
+
+function toggleHistoryItem(idx){
+  const detail=document.getElementById('history-detail-'+idx);
+  const chevron=document.getElementById('chevron-'+idx);
+  if(!detail)return;
+  if(detail.style.display==='none'){
+    detail.style.display='block';
+    if(chevron)chevron.style.transform='rotate(180deg)';
+  }else{
+    detail.style.display='none';
+    if(chevron)chevron.style.transform='rotate(0deg)';
+  }
 }
 
 // ═══════════════════════════════════════
