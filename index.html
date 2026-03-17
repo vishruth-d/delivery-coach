@@ -32,8 +32,6 @@ input:focus,textarea:focus{outline:none;border-color:rgba(255,255,255,0.25)}
 .stat-label{font-size:10px;color:var(--dim);letter-spacing:1px;margin-top:2px}
 details summary{font-size:11px;color:#555;cursor:pointer;margin-bottom:8px}
 .history-item{padding:14px;margin-bottom:8px}
-.recording-overlay{position:absolute;top:0;left:0;right:0;padding:20px 16px;background:linear-gradient(180deg,rgba(0,0,0,0.7),transparent);z-index:2}
-.transcript-overlay{position:absolute;bottom:0;left:0;right:0;padding:16px;background:linear-gradient(0deg,rgba(0,0,0,0.85),transparent);max-height:35%;overflow:auto;z-index:2}
 .rec-dot{width:8px;height:8px;border-radius:50%;background:#ff4444;animation:pulse 1s infinite}
 .stop-btn{width:72px;height:72px;border-radius:50%;border:4px solid #ff4444;background:transparent;cursor:pointer;display:flex;align-items:center;justify-content:center}
 .stop-inner{width:28px;height:28px;border-radius:6px;background:#ff4444}
@@ -57,7 +55,7 @@ details summary{font-size:11px;color:#555;cursor:pointer;margin-bottom:8px}
 </head>
 <body>
 
-<!-- ═══════ HOME ═══════ -->
+<!-- HOME -->
 <div id="home" class="screen active">
 <div class="container">
   <div style="margin-bottom:24px">
@@ -72,9 +70,9 @@ details summary{font-size:11px;color:#555;cursor:pointer;margin-bottom:8px}
     <p id="question-text" style="font-size:15px;font-weight:700;color:#fff;line-height:1.4;font-family:Georgia,serif;font-style:italic;margin-bottom:12px"></p>
     <input type="text" id="custom-q" placeholder="Or type your own question...">
   </div>
-  <button class="btn" id="start-btn" onclick="startRecording()" style="margin-top:8px">● START RECORDING</button>
+  <button class="btn" id="start-btn" onclick="startRecording()" style="margin-top:8px">&#x25CF; START RECORDING</button>
   <div id="camera-error" style="display:none;margin-top:12px;padding:12px;border-radius:10px;background:rgba(255,80,80,0.1);border:1px solid rgba(255,80,80,0.3);font-size:12px;color:#ff8888"></div>
-  <div id="done-today" style="display:none;margin-top:12px;padding:12px;border-radius:10px;text-align:center;background:rgba(74,222,128,0.08);border:1px solid rgba(74,222,128,0.2);font-size:12px;color:#4ade80">✓ Already logged today — do extra reps anytime</div>
+  <div id="done-today" style="display:none;margin-top:12px;padding:12px;border-radius:10px;text-align:center;background:rgba(74,222,128,0.08);border:1px solid rgba(74,222,128,0.2);font-size:12px;color:#4ade80">&#x2713; Already logged today &#x2014; do extra reps anytime</div>
   <div class="nav">
     <button class="btn btn-ghost" onclick="showScreen('history')">HISTORY (<span id="history-count">0</span>)</button>
     <button class="btn btn-ghost" onclick="showScreen('settings')">SETTINGS</button>
@@ -82,39 +80,35 @@ details summary{font-size:11px;color:#555;cursor:pointer;margin-bottom:8px}
 </div>
 </div>
 
-<!-- ═══════ RECORDING ═══════ -->
+<!-- RECORDING -->
 <div id="record" class="screen">
 <div id="rec-screen" style="position:fixed;top:0;left:0;right:0;bottom:0;background:#000;display:flex;flex-direction:column">
-  <!-- Countdown overlay -->
-  <div id="countdown-overlay" style="display:none;position:absolute;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.8);z-index:10;display:none;align-items:center;justify-content:center">
+  <div id="countdown-overlay" style="display:none;position:absolute;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.8);z-index:10;align-items:center;justify-content:center">
     <span id="countdown-num" style="font-size:80px;font-weight:900;color:#fff"></span>
   </div>
-  <!-- Video area - fixed 65% height -->
   <div style="height:65%;position:relative;overflow:hidden;flex-shrink:0">
     <video id="preview" autoplay playsinline muted style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%) scaleX(-1);min-width:100%;min-height:100%;width:auto;height:auto;object-fit:cover"></video>
     <div style="position:absolute;top:0;left:0;right:0;padding:max(env(safe-area-inset-top),20px) 16px 20px;background:linear-gradient(180deg,rgba(0,0,0,0.7),transparent);z-index:2">
       <div style="display:flex;justify-content:space-between;align-items:center">
-        <div class="pill" style="background:rgba(255,68,68,0.15);color:#ff4444;border:1px solid rgba(255,68,68,0.3)">
+        <div class="pill" id="rec-timer-pill" style="background:rgba(255,68,68,0.15);color:#ff4444;border:1px solid rgba(255,68,68,0.3)">
           <span class="rec-dot"></span> REC <span id="rec-timer">0:00</span>
         </div>
         <div class="pill" id="rec-habit-pill"></div>
       </div>
     </div>
   </div>
-  <!-- Transcript area - independent scroll, won't affect video -->
   <div style="flex:1;overflow-y:auto;padding:12px 16px;background:rgba(0,0,0,0.95);min-height:0">
     <div id="live-transcript" style="font-size:13px;color:#ddd;line-height:1.5">
       <span style="color:#555;font-style:italic">Start speaking...</span>
     </div>
   </div>
-  <!-- Stop button -->
   <div style="padding:14px 16px max(env(safe-area-inset-bottom),14px);background:var(--bg);display:flex;justify-content:center;flex-shrink:0">
     <button class="stop-btn" onclick="stopRecording()"><div class="stop-inner"></div></button>
   </div>
 </div>
 </div>
 
-<!-- ═══════ RESULTS ═══════ -->
+<!-- RESULTS -->
 <div id="results" class="screen">
 <div class="container" style="padding-bottom:40px">
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
@@ -129,27 +123,27 @@ details summary{font-size:11px;color:#555;cursor:pointer;margin-bottom:8px}
     <div id="filler-breakdown" style="display:none;margin-bottom:14px"></div>
     <div id="groq-analysis" style="display:none"></div>
     <details id="transcript-details">
-      <summary>View transcript (fillers in ⟨brackets⟩)</summary>
+      <summary>View transcript (fillers in &#x27E8;brackets&#x27E9;)</summary>
       <div id="transcript-view" style="font-size:12px;color:#777;line-height:1.6;padding:10px;background:rgba(0,0,0,0.3);border-radius:8px;max-height:200px;overflow:auto"></div>
     </details>
-    <div id="duration-warn" style="display:none;margin-top:10px;padding:10px;border-radius:8px;background:rgba(255,107,107,0.08);border:1px solid rgba(255,107,107,0.2);font-size:11px;color:#ff8888">⚠️ Over 2 minutes. Most answers should be 60-90 seconds.</div>
+    <div id="duration-warn" style="display:none;margin-top:10px;padding:10px;border-radius:8px;background:rgba(255,107,107,0.08);border:1px solid rgba(255,107,107,0.2);font-size:11px;color:#ff8888">&#x26A0;&#xFE0F; Over 2 minutes. Most answers should be 60-90 seconds.</div>
   </div>
-  <div id="no-transcript" class="card" style="display:none;text-align:center;color:#555;font-size:12px">Speech not captured — score manually below</div>
+  <div id="no-transcript" class="card" style="display:none;text-align:center;color:#555;font-size:12px">Speech not captured &#x2014; score manually below</div>
   <div class="card">
     <div class="label">SELF-SCORE (from video review)</div>
     <div id="manual-scores"></div>
-    <textarea id="session-notes" placeholder="Quick notes — what did you notice watching back?" rows="3"></textarea>
+    <textarea id="session-notes" placeholder="Quick notes &#x2014; what did you notice watching back?" rows="3"></textarea>
   </div>
   <button class="btn" id="log-btn" onclick="logSession()">LOG THIS SESSION</button>
-  <button class="btn" id="retry-btn" onclick="retryRecording()" style="margin-top:8px;background:var(--blue)">↻ RETRY — RECORD AGAIN</button>
+  <button class="btn" id="retry-btn" onclick="retryRecording()" style="margin-top:8px;background:var(--blue)">&#x21BB; RETRY &#x2014; RECORD AGAIN</button>
   <button class="btn btn-ghost" onclick="discardSession()" style="margin-top:8px">Discard and go back</button>
 </div>
 </div>
 
-<!-- ═══════ LOGGED ═══════ -->
+<!-- LOGGED -->
 <div id="logged" class="screen">
 <div class="container" style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;min-height:100dvh;text-align:center">
-  <div style="font-size:56px;margin-bottom:16px">✓</div>
+  <div style="font-size:56px;margin-bottom:16px">&#x2713;</div>
   <h2 style="font-size:22px;font-weight:800;color:#fff;margin-bottom:8px">Logged</h2>
   <p id="logged-info" style="font-size:13px;color:var(--dim);margin-bottom:4px"></p>
   <p id="logged-next" style="font-size:12px;color:#444;margin-bottom:32px"></p>
@@ -157,7 +151,7 @@ details summary{font-size:11px;color:#555;cursor:pointer;margin-bottom:8px}
 </div>
 </div>
 
-<!-- ═══════ HISTORY ═══════ -->
+<!-- HISTORY -->
 <div id="history" class="screen">
 <div class="container" style="padding-bottom:40px">
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
@@ -170,7 +164,7 @@ details summary{font-size:11px;color:#555;cursor:pointer;margin-bottom:8px}
 </div>
 </div>
 
-<!-- ═══════ SETTINGS ═══════ -->
+<!-- SETTINGS -->
 <div id="settings" class="screen">
 <div class="container" style="padding-bottom:40px">
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
@@ -180,9 +174,9 @@ details summary{font-size:11px;color:#555;cursor:pointer;margin-bottom:8px}
 
   <div class="card">
     <div class="label">AI ANALYSIS (GROQ)</div>
-    <p style="font-size:12px;color:#777;margin-bottom:12px;line-height:1.5">Add a free Groq API key for deeper analysis — catches fillers the auto-detect misses, evaluates your ending, flags repetition, gives coaching notes.</p>
+    <p style="font-size:12px;color:#777;margin-bottom:12px;line-height:1.5">Add a free Groq API key for deeper analysis &#x2014; catches fillers the auto-detect misses, evaluates your ending, flags repetition, gives coaching notes.</p>
     <input type="password" id="groq-key" placeholder="gsk_..." oninput="saveSettings()" style="margin-bottom:8px;font-size:13px">
-    <a href="https://console.groq.com/keys" target="_blank" style="font-size:11px;color:var(--blue);text-decoration:none">Get a free API key →</a>
+    <a href="https://console.groq.com/keys" target="_blank" style="font-size:11px;color:var(--blue);text-decoration:none">Get a free API key &#x2192;</a>
     <div id="groq-status" style="margin-top:8px"></div>
   </div>
 
@@ -228,17 +222,17 @@ details summary{font-size:11px;color:#555;cursor:pointer;margin-bottom:8px}
 </div>
 
 <script>
-// ═══════════════════════════════════════
+// =======================================
 // STATE & CONFIG
-// ═══════════════════════════════════════
+// =======================================
 const HABITS = [
-  {id:0,name:"Land the ending",emoji:"🎯",color:"#ff6b6b",short:"ENDINGS",
-   tip:"Last sentence: short and declarative. When 'so yeah' comes — stop."},
-  {id:1,name:"Kill the fillers",emoji:"✂️",color:"#ffa36b",short:"FILLERS",
+  {id:0,name:"Land the ending",emoji:"\uD83C\uDFAF",color:"#ff6b6b",short:"ENDINGS",
+   tip:"Last sentence: short and declarative. When 'so yeah' comes \u2014 stop."},
+  {id:1,name:"Kill the fillers",emoji:"\u2702\uFE0F",color:"#ffa36b",short:"FILLERS",
    tip:"Replace every 'sort of', 'I guess', 'kind of' with a half-second pause."},
-  {id:2,name:"Make the point, stop",emoji:"🛑",color:"#6bdfff",short:"CONCISE",
+  {id:2,name:"Make the point, stop",emoji:"\uD83D\uDED1",color:"#6bdfff",short:"CONCISE",
    tip:"Decide your answer in 2 sentences. Only add more if it's NEW info."},
-  {id:3,name:"Sit in silence",emoji:"🤫",color:"#b06bff",short:"SILENCE",
+  {id:3,name:"Sit in silence",emoji:"\uD83E\uDD2B",color:"#b06bff",short:"SILENCE",
    tip:"After your point, 5 seconds of silence. It feels long. It isn't."}
 ];
 
@@ -272,29 +266,19 @@ const FILLER_PHRASES = ["sort of","kind of","i guess","you know","i think","i me
 const FILLER_WORDS = ["um","uh","like","right","yeah","er","erm","ah","oh",
   "well","so","just","actually","really","honestly","obviously","clearly",
   "definitely","certainly","probably","maybe","perhaps","anyway","anyways"];
-// Words that are only fillers in certain contexts — flag but weight lower
 const SOFT_FILLERS = ["just","actually","really","so","well","obviously","clearly","definitely","probably","maybe"];
 
 let state = {entries:[],settings:{groqKey:"",notifEnabled:false,notifTime:"09:00",customQuestions:[]}};
 let recording = {active:false,timer:0,transcript:"",interim:"",pauses:[],lastSpeech:0,resultIndex:0};
 let mediaRecorder=null, stream=null, recognition=null, chunks=[], timerInterval=null, videoUrl=null, videoBlob=null;
 let currentAnalysis=null, manualScores={body:null,energy:null,confidence:null};
-let previousAttempt=null; // stores previous analysis for retry comparison
+let previousAttempt=null;
+let currentSessionId=0; // FIX: session cancellation for async race conditions
 
-// ═══════════════════════════════════════
-// PERSISTENCE
-// ═══════════════════════════════════════
-function save(){localStorage.setItem('dc_data',JSON.stringify(state))}
-function load(){
-  try{const d=JSON.parse(localStorage.getItem('dc_data'));if(d){state=d;
-    if(!state.settings)state.settings={groqKey:"",notifEnabled:false,notifTime:"09:00",customQuestions:[]};
-    if(!state.settings.customQuestions)state.settings.customQuestions=[];
-  }}catch(e){}
-}
-
-// ═══════════════════════════════════════
+// =======================================
 // HELPERS
-// ═══════════════════════════════════════
+// =======================================
+function esc(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML}
 function today(){return new Date().toISOString().split('T')[0]}
 function uniqueDays(){return[...new Set(state.entries.map(e=>e.date))].length}
 function dayIndex(){return uniqueDays()}
@@ -302,7 +286,40 @@ function todayHabit(){return HABITS[dayIndex()%4]}
 function completedToday(){return state.entries.some(e=>e.date===today())}
 function todaySessionCount(){return state.entries.filter(e=>e.date===today()).length}
 function formatTime(s){return Math.floor(s/60)+':'+(s%60).toString().padStart(2,'0')}
+function cancelCurrentSession(){currentSessionId++}
 
+// =======================================
+// PERSISTENCE (with QuotaExceededError handling)
+// =======================================
+function save(){
+  try{
+    localStorage.setItem('dc_data',JSON.stringify(state));
+  }catch(e){
+    if(e.name==='QuotaExceededError'||e.code===22){
+      const trimmed=state.entries.map((entry,i)=>{
+        if(i<state.entries.length-20&&entry.transcript&&entry.transcript.length>200){
+          return{...entry,transcript:entry.transcript.substring(0,200)+'...[trimmed]'};
+        }
+        return entry;
+      });
+      state.entries=trimmed;
+      try{localStorage.setItem('dc_data',JSON.stringify(state))}catch(e2){
+        alert('Storage full. Please export your data and reset.');
+      }
+    }
+  }
+}
+function load(){
+  try{const d=JSON.parse(localStorage.getItem('dc_data'));if(d){state=d;
+    if(!state.settings)state.settings={groqKey:"",notifEnabled:false,notifTime:"09:00",customQuestions:[]};
+    if(!state.settings.customQuestions)state.settings.customQuestions=[];
+    if(!Array.isArray(state.entries))state.entries=[];
+  }}catch(e){console.warn('Failed to load saved data:',e)}
+}
+
+// =======================================
+// MORE HELPERS
+// =======================================
 function getStreak(){
   let s=0,d=new Date();
   for(let i=0;i<60;i++){
@@ -314,55 +331,61 @@ function getStreak(){
   return s;
 }
 
+// FIX: session-count-aware question selection so multi-session days get different questions
 function pickQuestion(){
   const all=[...DEFAULT_QUESTIONS,...(state.settings.customQuestions||[])];
   const used=state.entries.slice(-15).map(e=>e.question);
   const avail=all.filter(q=>!used.includes(q));
   const pool=avail.length>0?avail:all;
-  const seed=today().split('-').reduce((a,b)=>a+parseInt(b),0);
+  const seed=today().split('-').reduce((a,b)=>a+parseInt(b),0)+todaySessionCount();
   return pool[seed%pool.length];
 }
 
+// FIX: filler double-counting — sort phrases longest-first, remove matched before checking shorter
 function countFillers(text){
   const lower=text.toLowerCase();
   let hardCount=0,softCount=0;
   const hardFound=[],softFound=[];
+  let cleaned=lower;
 
-  // Hard fillers — always a filler
-  FILLER_PHRASES.forEach(f=>{
+  [...FILLER_PHRASES].sort((a,b)=>b.length-a.length).forEach(f=>{
     const r=new RegExp(`\\b${f.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}\\b`,'gi');
-    const m=lower.match(r);
-    if(m){hardCount+=m.length;m.forEach(()=>hardFound.push(f))}
+    const m=cleaned.match(r);
+    if(m){hardCount+=m.length;m.forEach(()=>hardFound.push(f));
+      cleaned=cleaned.replace(r,' _ ');}
   });
 
-  // Separate hard filler words (um, uh, er, erm, ah) from contextual ones
   const HARD_FILLER_WORDS=["um","uh","er","erm","ah"];
   HARD_FILLER_WORDS.forEach(f=>{
     const r=new RegExp(`(?:^|[\\s,.!?])(${f})(?=[\\s,.!?]|$)`,'gi');
-    const m=lower.match(r);
+    const m=cleaned.match(r);
     if(m){hardCount+=m.length;m.forEach(()=>hardFound.push(f))}
   });
 
-  // "like" as filler — only when not preceded by "would/looks/feel/sound/taste/seems"
-  const likeTotal=(lower.match(/(?:^|[\s,.])(like)(?=[\s,.]|$)/gi)||[]).length;
+  // FIX: "like" regex now includes ! and ?
+  const likeTotal=(cleaned.match(/(?:^|[\s,.!?])(like)(?=[\s,.!?]|$)/gi)||[]).length;
   const likeReal=(lower.match(/\b(looks like|feel like|would like|sounds like|seems like|felt like|tastes like|smells like)\b/gi)||[]).length;
   const likeFiller=Math.max(0,likeTotal-likeReal);
   if(likeFiller>0){hardCount+=likeFiller;for(let i=0;i<likeFiller;i++)hardFound.push('like')}
 
-  // Soft fillers — contextual, counted separately
   SOFT_FILLERS.forEach(f=>{
-    if(f==='like')return; // handled above
     const r=new RegExp(`(?:^|[\\s,.!?])(${f})(?=[\\s,.!?]|$)`,'gi');
-    const m=lower.match(r);
+    const m=cleaned.match(r);
     if(m){softCount+=m.length;m.forEach(()=>softFound.push(f))}
   });
 
-  // Detect repeated words (stuttering) — "I I", "the the", "and and"
+  // FIX: exclude common legitimate doubles from stutter detection
+  const LEGIT_DOUBLES=["that that","had had","is is"];
   const repeatMatches=lower.match(/\b(\w{2,})\s+\1\b/g);
   let repeats=0;
-  if(repeatMatches){repeats=repeatMatches.length;hardCount+=repeats;repeatMatches.forEach(m=>hardFound.push('repeat: '+m.trim()))}
-
-  // Detect false starts — "I was going to — I mean" patterns captured by phrase fillers above
+  if(repeatMatches){
+    repeatMatches.forEach(m=>{
+      if(!LEGIT_DOUBLES.includes(m.trim().toLowerCase())){
+        repeats++;hardFound.push('repeat: '+m.trim());
+      }
+    });
+    hardCount+=repeats;
+  }
 
   return{count:hardCount,softCount,found:hardFound,softFound,repeats,total:hardCount+softCount};
 }
@@ -381,18 +404,18 @@ function highlightFillers(text){
   let h=text;
   [...FILLER_PHRASES].sort((a,b)=>b.length-a.length).forEach(f=>{
     const r=new RegExp(`(\\b${f.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}\\b)`,'gi');
-    h=h.replace(r,'⟨$1⟩');
+    h=h.replace(r,'\u27E8$1\u27E9');
   });
   FILLER_WORDS.forEach(f=>{
     const r=new RegExp(`(^|[\\s,.])(${f})(?=[\\s,.]|$)`,'gi');
-    h=h.replace(r,'$1⟨$2⟩');
+    h=h.replace(r,'$1\u27E8$2\u27E9');
   });
   return h;
 }
 
-// ═══════════════════════════════════════
+// =======================================
 // SCREENS
-// ═══════════════════════════════════════
+// =======================================
 function showScreen(id){
   document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
   document.getElementById(id).classList.add('active');
@@ -401,12 +424,12 @@ function showScreen(id){
   if(id==='settings')renderSettings();
 }
 
-// ═══════════════════════════════════════
+// =======================================
 // HOME
-// ═══════════════════════════════════════
+// =======================================
 function renderHome(){
   const h=todayHabit(),s=getStreak(),di=dayIndex();
-  
+
   document.getElementById('home-stats').innerHTML=`
     <span style="color:var(--dim)">Day <span style="color:${h.color};font-weight:700">${di+(completedToday()?0:1)}</span></span>
     <span style="color:var(--dim)">Reps today <span style="color:#888;font-weight:700">${todaySessionCount()}</span></span>
@@ -427,16 +450,17 @@ function renderHome(){
   document.getElementById('focus-card').style.background=`linear-gradient(135deg,${h.color}0d,transparent)`;
   document.getElementById('focus-card').style.borderColor=h.color+'33';
 
-  document.getElementById('question-text').textContent=`"${pickQuestion()}"`;
+  document.getElementById('question-text').textContent=`\u201C${pickQuestion()}\u201D`;
   document.getElementById('start-btn').style.background=h.color;
   document.getElementById('done-today').style.display=completedToday()?'block':'none';
   document.getElementById('history-count').textContent=state.entries.length;
 }
 
-// ═══════════════════════════════════════
+// =======================================
 // RECORDING
-// ═══════════════════════════════════════
+// =======================================
 async function startRecording(){
+  currentSessionId++; // FIX: increment session id for race condition protection
   document.getElementById('camera-error').style.display='none';
   recording={active:false,timer:0,transcript:"",interim:"",pauses:[],lastSpeech:0,resultIndex:0};
   chunks=[];videoUrl=null;videoBlob=null;
@@ -451,14 +475,16 @@ async function startRecording(){
     return;
   }
 
-  // Show recording screen with preview
   showScreen('record');
   const preview=document.getElementById('preview');
   preview.srcObject=stream;
   preview.play().catch(()=>{});
   document.getElementById('live-transcript').innerHTML='<span style="color:#555;font-style:italic">Get ready...</span>';
 
-  // 3-second countdown
+  // Reset timer pill colour
+  const timerPill=document.getElementById('rec-timer-pill');
+  if(timerPill){timerPill.style.color='#ff4444';timerPill.style.borderColor='rgba(255,68,68,0.3)';timerPill.style.background='rgba(255,68,68,0.15)'}
+
   const overlay=document.getElementById('countdown-overlay');
   const num=document.getElementById('countdown-num');
   overlay.style.display='flex';
@@ -470,7 +496,6 @@ async function startRecording(){
   await new Promise(r=>setTimeout(r,500));
   overlay.style.display='none';
 
-  // Now start recording
   recording.active=true;
   recording.lastSpeech=Date.now();
   document.getElementById('live-transcript').innerHTML='<span style="color:#555;font-style:italic">Start speaking...</span>';
@@ -487,11 +512,12 @@ async function startRecording(){
     const container=document.getElementById('video-container');
     if(container){
       container.style.display='block';
+      // FIX: no muted attr on playback video, add webkit-playsinline for iOS audio
       container.innerHTML=`
         <div style="transform:scaleX(-1);border-radius:12px;overflow:hidden">
-          <video id="vid-playback" controls playsinline src="${videoUrl}" style="width:100%;display:block"></video>
+          <video id="vid-playback" controls playsinline webkit-playsinline src="${videoUrl}" style="width:100%;display:block"></video>
         </div>
-        <div style="font-size:10px;color:#444;text-align:center;margin-top:6px">Watch back — check body language, posture, eye contact</div>`;
+        <div style="font-size:10px;color:#444;text-align:center;margin-top:6px">Watch back \u2014 check body language, posture, eye contact</div>`;
     }
   };
   mediaRecorder.start(1000);
@@ -521,17 +547,29 @@ async function startRecording(){
       updateLiveTranscript();
     };
     recognition.onend=()=>{if(recording.active){recording.resultIndex=0;try{recognition.start()}catch(e){}}};
-    recognition.onerror=()=>{};
+    // FIX: show feedback on mic errors instead of silently swallowing
+    recognition.onerror=(e)=>{
+      if(e.error==='not-allowed'||e.error==='service-not-allowed'){
+        document.getElementById('live-transcript').innerHTML=
+          '<span style="color:#ff8888;font-style:italic">Microphone access lost. Transcript may be incomplete.</span>';
+      }
+    };
     try{recognition.start()}catch(e){}
   }
 
-  // Timer
+  // Timer with colour warnings at 90s and 120s
   timerInterval=setInterval(()=>{
     recording.timer++;
-    document.getElementById('rec-timer').textContent=formatTime(recording.timer);
+    const timerEl=document.getElementById('rec-timer');
+    timerEl.textContent=formatTime(recording.timer);
+    const pill=document.getElementById('rec-timer-pill');
+    if(recording.timer>=120){
+      pill.style.color='#ff4444';pill.style.borderColor='rgba(255,68,68,0.6)';pill.style.background='rgba(255,68,68,0.3)';
+    }else if(recording.timer>=90){
+      pill.style.color='#ffa36b';pill.style.borderColor='rgba(255,163,107,0.4)';pill.style.background='rgba(255,163,107,0.2)';
+    }
   },1000);
 
-  // UI
   const h=todayHabit();
   document.getElementById('rec-habit-pill').innerHTML=`${h.emoji} ${h.short}`;
   document.getElementById('rec-habit-pill').style.cssText=`background:${h.color}22;color:${h.color};border:1px solid ${h.color}44;padding:6px 14px;border-radius:20px;font-size:12px;font-weight:700`;
@@ -540,7 +578,7 @@ async function startRecording(){
 function updateLiveTranscript(){
   const el=document.getElementById('live-transcript');
   if(recording.transcript||recording.interim){
-    el.innerHTML=`<span>${recording.transcript}</span><span style="color:#888">${recording.interim}</span>`;
+    el.innerHTML=`<span>${esc(recording.transcript)}</span><span style="color:#888">${esc(recording.interim)}</span>`;
   }
 }
 
@@ -556,7 +594,6 @@ function stopRecording(){
   manualScores={body:null,energy:null,confidence:null};
   document.getElementById('session-notes').value='';
 
-  // Build initial analysis from Web Speech API transcript
   if(text.trim().length>10){
     const fillers=countFillers(text);
     const trailing=analyzeTrailing(text);
@@ -569,22 +606,23 @@ function stopRecording(){
   renderResults();
   showScreen('results');
 
-  // Wait for videoBlob to be ready, then run Whisper on it
+  // FIX: capture session id to cancel stale async callbacks
+  const thisSession=currentSessionId;
   if(state.settings.groqKey){
     const waitForBlob=setInterval(()=>{
+      if(currentSessionId!==thisSession){clearInterval(waitForBlob);return}
       if(videoBlob){
         clearInterval(waitForBlob);
-        runWhisperTranscription(videoBlob,dur);
+        runWhisperTranscription(videoBlob,dur,thisSession);
       }
     },200);
-    // Timeout after 10s
     setTimeout(()=>clearInterval(waitForBlob),10000);
   }
 }
 
-// ═══════════════════════════════════════
+// =======================================
 // RESULTS
-// ═══════════════════════════════════════
+// =======================================
 function renderResults(){
   const h=todayHabit();
   document.getElementById('result-time').textContent=formatTime(recording.timer);
@@ -596,58 +634,18 @@ function renderResults(){
         <div style="font-size:12px;color:#555">Processing video...</div>
       </div>`;
   }else{
+    // FIX: no muted on playback, add webkit-playsinline for iOS audio
     document.getElementById('video-container').innerHTML=`
       <div style="transform:scaleX(-1);border-radius:12px;overflow:hidden">
-        <video controls playsinline src="${videoUrl}" style="width:100%;display:block"></video>
+        <video controls playsinline webkit-playsinline src="${videoUrl}" style="width:100%;display:block"></video>
       </div>
-      <div style="font-size:10px;color:#444;text-align:center;margin-top:6px">Watch back — check body language, posture, eye contact</div>`;
+      <div style="font-size:10px;color:#444;text-align:center;margin-top:6px">Watch back \u2014 check body language, posture, eye contact</div>`;
   }
 
   if(currentAnalysis){
-    const a=currentAnalysis;
     document.getElementById('auto-analysis').style.display='block';
     document.getElementById('no-transcript').style.display='none';
-
-    const fc=a.fillers.count;
-    const sc=a.fillers.softCount||0;
-    const fcColor=fc>5?'var(--red)':fc>2?'var(--orange)':'var(--green)';
-    const ec=a.trailing.trailing?'var(--red)':'var(--green)';
-    document.getElementById('stats-grid').innerHTML=`
-      <div class="stat-box"><div class="stat-num" style="color:${fcColor}">${fc}</div><div class="stat-label">HARD FILLERS</div></div>
-      <div class="stat-box"><div class="stat-num" style="color:${sc>8?'var(--orange)':'var(--dim)'}">${sc}</div><div class="stat-label">SOFT FILLERS</div></div>
-      <div class="stat-box"><div class="stat-num">${a.words}</div><div class="stat-label">WORDS</div></div>
-      <div class="stat-box"><div class="stat-num" style="color:${ec}">${a.trailing.trailing?'Weak':'Clean'}</div><div class="stat-label">ENDING</div></div>
-      <div class="stat-box"><div class="stat-num">${Math.round(a.wpm)}</div><div class="stat-label">WPM</div></div>
-      <div class="stat-box"><div class="stat-num">${a.pauses.length}</div><div class="stat-label">PAUSES</div></div>`;
-
-    const allFound=[...(a.fillers.found||[])];
-    const allSoft=[...(a.fillers.softFound||[])];
-    if(allFound.length>0||allSoft.length>0){
-      const uniqueHard=[...new Set(allFound)];
-      const uniqueSoft=[...new Set(allSoft)];
-      let html='';
-      if(uniqueHard.length>0){
-        html+=`<div style="font-size:11px;color:#ff8888;margin-bottom:6px;font-weight:700">Hard fillers (cut these):</div>
-        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">${uniqueHard.map(f=>{
-          const c=allFound.filter(x=>x===f).length;
-          return `<span class="pill" style="background:rgba(255,107,107,0.15);color:var(--red);border:1px solid rgba(255,107,107,0.3);font-size:11px">${f}${c>1?' ×'+c:''}</span>`;
-        }).join('')}</div>`;
-      }
-      if(uniqueSoft.length>0){
-        html+=`<div style="font-size:11px;color:#888;margin-bottom:6px">Soft fillers (watch these):</div>
-        <div style="display:flex;gap:6px;flex-wrap:wrap">${uniqueSoft.map(f=>{
-          const c=allSoft.filter(x=>x===f).length;
-          return `<span class="pill" style="background:rgba(255,255,255,0.04);color:var(--dim);border:1px solid rgba(255,255,255,0.1);font-size:11px">${f}${c>1?' ×'+c:''}</span>`;
-        }).join('')}</div>`;
-      }
-      document.getElementById('filler-breakdown').style.display='block';
-      document.getElementById('filler-breakdown').innerHTML=html;
-    }else{document.getElementById('filler-breakdown').style.display='none'}
-
-    document.getElementById('transcript-view').textContent=a.highlighted;
-    document.getElementById('duration-warn').style.display=a.tooLong?'block':'none';
-    document.getElementById('groq-analysis').style.display='none';
-    renderImprovementTips();
+    updateAnalysisSection();
   }else{
     document.getElementById('auto-analysis').style.display='none';
     document.getElementById('no-transcript').style.display='block';
@@ -671,6 +669,56 @@ function renderResults(){
     </div>`).join('');
 }
 
+// FIX: separate function to update analysis section without touching manual scores or video
+function updateAnalysisSection(){
+  if(!currentAnalysis)return;
+  const a=currentAnalysis;
+  const fc=a.fillers.count;
+  const sc=a.fillers.softCount||0;
+  const fcColor=fc>5?'var(--red)':fc>2?'var(--orange)':'var(--green)';
+  const ec=a.trailing.trailing?'var(--red)':'var(--green)';
+
+  document.getElementById('auto-analysis').style.display='block';
+  document.getElementById('no-transcript').style.display='none';
+
+  document.getElementById('stats-grid').innerHTML=`
+    <div class="stat-box"><div class="stat-num" style="color:${fcColor}">${fc}</div><div class="stat-label">HARD FILLERS</div></div>
+    <div class="stat-box"><div class="stat-num" style="color:${sc>8?'var(--orange)':'var(--dim)'}">${sc}</div><div class="stat-label">SOFT FILLERS</div></div>
+    <div class="stat-box"><div class="stat-num">${a.words}</div><div class="stat-label">WORDS</div></div>
+    <div class="stat-box"><div class="stat-num" style="color:${ec}">${a.trailing.trailing?'Weak':'Clean'}</div><div class="stat-label">ENDING</div></div>
+    <div class="stat-box"><div class="stat-num">${Math.round(a.wpm)}</div><div class="stat-label">WPM</div></div>
+    <div class="stat-box"><div class="stat-num">${a.pauses.length}</div><div class="stat-label">PAUSES</div></div>`;
+
+  const allFound=[...(a.fillers.found||[])];
+  const allSoft=[...(a.fillers.softFound||[])];
+  if(allFound.length>0||allSoft.length>0){
+    const uniqueHard=[...new Set(allFound)];
+    const uniqueSoft=[...new Set(allSoft)];
+    let html='';
+    if(uniqueHard.length>0){
+      html+=`<div style="font-size:11px;color:#ff8888;margin-bottom:6px;font-weight:700">Hard fillers (cut these):</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">${uniqueHard.map(f=>{
+        const c=allFound.filter(x=>x===f).length;
+        return `<span class="pill" style="background:rgba(255,107,107,0.15);color:var(--red);border:1px solid rgba(255,107,107,0.3);font-size:11px">${esc(f)}${c>1?' \u00D7'+c:''}</span>`;
+      }).join('')}</div>`;
+    }
+    if(uniqueSoft.length>0){
+      html+=`<div style="font-size:11px;color:#888;margin-bottom:6px">Soft fillers (watch these):</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">${uniqueSoft.map(f=>{
+        const c=allSoft.filter(x=>x===f).length;
+        return `<span class="pill" style="background:rgba(255,255,255,0.04);color:var(--dim);border:1px solid rgba(255,255,255,0.1);font-size:11px">${esc(f)}${c>1?' \u00D7'+c:''}</span>`;
+      }).join('')}</div>`;
+    }
+    document.getElementById('filler-breakdown').style.display='block';
+    document.getElementById('filler-breakdown').innerHTML=html;
+  }else{document.getElementById('filler-breakdown').style.display='none'}
+
+  document.getElementById('transcript-view').textContent=a.highlighted;
+  document.getElementById('duration-warn').style.display=a.tooLong?'block':'none';
+  document.getElementById('groq-analysis').style.display='none';
+  renderImprovementTips();
+}
+
 function setScore(key,val){
   manualScores[key]=val;
   const h=todayHabit();
@@ -681,13 +729,14 @@ function setScore(key,val){
   });
 }
 
-// ═══════════════════════════════════════
+// =======================================
 // WHISPER TRANSCRIPTION
-// ═══════════════════════════════════════
-async function runWhisperTranscription(audioBlob,duration){
+// =======================================
+async function runWhisperTranscription(audioBlob,duration,sessionId){
+  if(currentSessionId!==sessionId)return; // FIX: bail if session changed
   const el=document.getElementById('groq-analysis');
   el.style.display='block';
-  el.innerHTML=`<div style="padding:12px;background:rgba(74,222,128,0.06);border:1px solid rgba(74,222,128,0.15);border-radius:10px;font-size:12px;color:var(--green)">🎙️ Transcribing with Whisper...</div>`;
+  el.innerHTML=`<div style="padding:12px;background:rgba(74,222,128,0.06);border:1px solid rgba(74,222,128,0.15);border-radius:10px;font-size:12px;color:var(--green)">\uD83C\uDF99\uFE0F Transcribing with Whisper...</div>`;
 
   try{
     const formData=new FormData();
@@ -705,16 +754,13 @@ async function runWhisperTranscription(audioBlob,duration){
       body:formData
     });
 
-    if(!res.ok){
-      const err=await res.text();
-      throw new Error(err);
-    }
+    if(!res.ok){const err=await res.text();throw new Error(err)}
+    if(currentSessionId!==sessionId)return; // FIX: check again after await
 
     const data=await res.json();
     const whisperText=data.text||'';
 
     if(whisperText.trim().length>10){
-      // Re-run analysis with Whisper transcript (much better filler detection)
       const fillers=countFillers(whisperText);
       const trailing=analyzeTrailing(whisperText);
       const words=whisperText.trim().split(/\s+/).filter(Boolean).length;
@@ -723,9 +769,9 @@ async function runWhisperTranscription(audioBlob,duration){
         pauses:recording.pauses,tooLong:duration>120,highlighted:highlightFillers(whisperText),raw:whisperText,
         whisperUsed:true};
 
-      // Re-render stats with Whisper data
-      renderResults();
-      // Show whisper badge with preview
+      if(currentSessionId!==sessionId)return;
+      // FIX: use updateAnalysisSection instead of full renderResults to preserve manual scores
+      updateAnalysisSection();
       const badge=document.getElementById('auto-analysis');
       if(badge){
         const existing=badge.querySelector('.whisper-badge');
@@ -733,33 +779,33 @@ async function runWhisperTranscription(audioBlob,duration){
           const b=document.createElement('div');
           b.className='whisper-badge';
           b.style.cssText='font-size:9px;padding:6px 10px;border-radius:10px;background:rgba(74,222,128,0.08);color:var(--green);border:1px solid rgba(74,222,128,0.2);display:block;margin-bottom:12px;line-height:1.5';
-          b.innerHTML=`✓ WHISPER V3 TRANSCRIPT<br><span style="color:#888;font-size:9px">${whisperText.substring(0,80)}${whisperText.length>80?'...':''}</span>`;
+          b.innerHTML=`\u2713 WHISPER V3 TRANSCRIPT<br><span style="color:#888;font-size:9px">${esc(whisperText.substring(0,80))}${whisperText.length>80?'...':''}</span>`;
           badge.insertBefore(b,badge.children[1]);
         }
       }
     }else{
-      // Whisper returned empty/short — show warning
-      el.innerHTML=`<div style="padding:12px;background:rgba(255,163,107,0.08);border:1px solid rgba(255,163,107,0.2);border-radius:10px;font-size:11px;color:var(--orange)">⚠️ Whisper returned: "${whisperText||'(empty)'}". Using browser transcript instead.</div>`;
+      el.innerHTML=`<div style="padding:12px;background:rgba(255,163,107,0.08);border:1px solid rgba(255,163,107,0.2);border-radius:10px;font-size:11px;color:var(--orange)">\u26A0\uFE0F Whisper returned: "${esc(whisperText||'(empty)')}". Using browser transcript instead.</div>`;
     }
 
-    // Now run LLM coaching analysis on the better transcript
-    el.innerHTML=`<div style="padding:12px;background:rgba(74,222,128,0.06);border:1px solid rgba(74,222,128,0.15);border-radius:10px;font-size:12px;color:var(--green)">🧠 Running AI coaching analysis...</div>`;
-    await runGroqAnalysis(whisperText||recording.transcript,duration,document.getElementById('custom-q').value.trim()||pickQuestion());
+    if(currentSessionId!==sessionId)return;
+    el.innerHTML=`<div style="padding:12px;background:rgba(74,222,128,0.06);border:1px solid rgba(74,222,128,0.15);border-radius:10px;font-size:12px;color:var(--green)">\uD83E\uDDE0 Running AI coaching analysis...</div>`;
+    await runGroqAnalysis(whisperText||recording.transcript,duration,document.getElementById('custom-q').value.trim()||pickQuestion(),sessionId);
 
   }catch(e){
+    if(currentSessionId!==sessionId)return;
     el.innerHTML=`<div style="padding:12px;background:rgba(255,80,80,0.08);border:1px solid rgba(255,80,80,0.2);border-radius:10px;font-size:11px;color:#ff8888">
-      Whisper transcription failed: ${e.message?.substring(0,100)||'Check API key'}</div>`;
-    // Fallback to Web Speech transcript for LLM analysis
+      Whisper transcription failed: ${esc((e.message||'Check API key').substring(0,100))}</div>`;
     if(currentAnalysis){
-      await runGroqAnalysis(recording.transcript,duration,document.getElementById('custom-q').value.trim()||pickQuestion());
+      await runGroqAnalysis(recording.transcript,duration,document.getElementById('custom-q').value.trim()||pickQuestion(),sessionId);
     }
   }
 }
 
-// ═══════════════════════════════════════
+// =======================================
 // GROQ AI COACHING ANALYSIS
-// ═══════════════════════════════════════
-async function runGroqAnalysis(text,duration,question){
+// =======================================
+async function runGroqAnalysis(text,duration,question,sessionId){
+  if(currentSessionId!==sessionId)return; // FIX: bail if session changed
   const el=document.getElementById('groq-analysis');
   el.style.display='block';
   el.innerHTML=`<div style="padding:12px;background:rgba(74,222,128,0.06);border:1px solid rgba(74,222,128,0.15);border-radius:10px;font-size:12px;color:var(--green)">Analysing with AI...</div>`;
@@ -774,7 +820,7 @@ async function runGroqAnalysis(text,duration,question){
 
 The person was answering this interview question: "${question||'unknown'}"
 
-Analyse BOTH the delivery AND the content of their answer relative to the question. Your coaching should be specific to what they said and what they were trying to answer — not generic advice.
+Analyse BOTH the delivery AND the content of their answer relative to the question. Your coaching should be specific to what they said and what they were trying to answer \u2014 not generic advice.
 
 Respond ONLY in valid JSON, no markdown, no backticks, no preamble.
 
@@ -785,50 +831,50 @@ JSON format:
       })
     });
 
-    if(!res.ok){
-      const err=await res.text();
-      throw new Error(err);
-    }
+    if(!res.ok){const err=await res.text();throw new Error(err)}
+    if(currentSessionId!==sessionId)return;
 
     const data=await res.json();
     let content=data.choices[0].message.content.trim();
     content=content.replace(/```json\s*/g,'').replace(/```/g,'').trim();
     const result=JSON.parse(content);
 
+    if(currentSessionId!==sessionId)return;
     el.innerHTML=`
       <div style="padding:14px;background:rgba(74,222,128,0.06);border:1px solid rgba(74,222,128,0.15);border-radius:10px">
         <div style="display:flex;align-items:center;gap:6px;margin-bottom:10px">
           <span class="groq-badge">AI COACHING</span>
         </div>
-        <div style="font-size:13px;color:var(--green);font-weight:700;margin-bottom:12px;line-height:1.5">${result.coaching||''}</div>
+        <div style="font-size:13px;color:var(--green);font-weight:700;margin-bottom:12px;line-height:1.5">${esc(result.coaching||'')}</div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:11px">
           <div style="padding:6px 8px;background:rgba(0,0,0,0.2);border-radius:6px;color:#888">Ending: <span style="color:${result.ending?.strong?'var(--green)':'var(--red)'};font-weight:700">${result.ending?.strong?'Strong':'Weak'}</span></div>
           <div style="padding:6px 8px;background:rgba(0,0,0,0.2);border-radius:6px;color:#888">Repetition: <span style="color:${(result.repetition?.score||0)>=4?'var(--green)':(result.repetition?.score||0)>=2?'var(--orange)':'var(--red)'};font-weight:700">${result.repetition?.score||'?'}/5</span></div>
           <div style="padding:6px 8px;background:rgba(0,0,0,0.2);border-radius:6px;color:#888">Conciseness: <span style="color:${(result.overexplaining?.score||0)>=4?'var(--green)':(result.overexplaining?.score||0)>=2?'var(--orange)':'var(--red)'};font-weight:700">${result.overexplaining?.score||'?'}/5</span></div>
           <div style="padding:6px 8px;background:rgba(0,0,0,0.2);border-radius:6px;color:#888">Confidence: <span style="color:${(result.confidence?.score||0)>=4?'var(--green)':(result.confidence?.score||0)>=2?'var(--orange)':'var(--red)'};font-weight:700">${result.confidence?.score||'?'}/5</span></div>
-          <div style="padding:6px 8px;background:rgba(0,0,0,0.2);border-radius:6px;color:#888;grid-column:span 2">Content: <span style="color:${(result.content?.score||0)>=4?'var(--green)':(result.content?.score||0)>=2?'var(--orange)':'var(--red)'};font-weight:700">${result.content?.score||'?'}/5</span> <span style="color:#555;font-size:10px">${result.content?.note||''}</span></div>
+          <div style="padding:6px 8px;background:rgba(0,0,0,0.2);border-radius:6px;color:#888;grid-column:span 2">Content: <span style="color:${(result.content?.score||0)>=4?'var(--green)':(result.content?.score||0)>=2?'var(--orange)':'var(--red)'};font-weight:700">${result.content?.score||'?'}/5</span> <span style="color:#555;font-size:10px">${esc(result.content?.note||'')}</span></div>
         </div>
-        ${result.ending?.note?`<div style="font-size:10px;color:#555;margin-top:8px">Ending: ${result.ending.note}</div>`:''}
-        ${result.repetition?.note?`<div style="font-size:10px;color:#555;margin-top:3px">Repetition: ${result.repetition.note}</div>`:''}
-        ${result.overexplaining?.note?`<div style="font-size:10px;color:#555;margin-top:3px">Conciseness: ${result.overexplaining.note}</div>`:''}
-        ${result.confidence?.note?`<div style="font-size:10px;color:#555;margin-top:3px">Confidence: ${result.confidence.note}</div>`:''}
-        ${result.fillers?.missed?.length?`<div style="font-size:10px;color:var(--orange);margin-top:6px">AI also spotted: ${result.fillers.missed.join(', ')}</div>`:''}
+        ${result.ending?.note?`<div style="font-size:10px;color:#555;margin-top:8px">Ending: ${esc(result.ending.note)}</div>`:''}
+        ${result.repetition?.note?`<div style="font-size:10px;color:#555;margin-top:3px">Repetition: ${esc(result.repetition.note)}</div>`:''}
+        ${result.overexplaining?.note?`<div style="font-size:10px;color:#555;margin-top:3px">Conciseness: ${esc(result.overexplaining.note)}</div>`:''}
+        ${result.confidence?.note?`<div style="font-size:10px;color:#555;margin-top:3px">Confidence: ${esc(result.confidence.note)}</div>`:''}
+        ${result.fillers?.missed?.length?`<div style="font-size:10px;color:var(--orange);margin-top:6px">AI also spotted: ${esc(result.fillers.missed.join(', '))}</div>`:''}
       </div>`;
 
-    // Store AI result in currentAnalysis
     if(currentAnalysis)currentAnalysis.groq=result;
   }catch(e){
+    if(currentSessionId!==sessionId)return;
     el.innerHTML=`<div style="padding:12px;background:rgba(255,80,80,0.08);border:1px solid rgba(255,80,80,0.2);border-radius:10px;font-size:11px;color:#ff8888">
-      AI analysis failed: ${e.message?.substring(0,100)||'Check your API key'}</div>`;
+      AI analysis failed: ${esc((e.message||'Check your API key').substring(0,100))}</div>`;
   }
 }
 
-// ═══════════════════════════════════════
+// =======================================
 // LOG SESSION
-// ═══════════════════════════════════════
+// =======================================
+// FIX: use removeAttribute('src') + load() instead of setting src=''
 function stopAllVideo(){
   const vids=document.querySelectorAll('video');
-  vids.forEach(v=>{try{v.pause();v.src=''}catch(e){}});
+  vids.forEach(v=>{try{v.pause();v.removeAttribute('src');v.load()}catch(e){}});
 }
 
 function logSession(){
@@ -878,9 +924,11 @@ function logSession(){
   showScreen('logged');
 }
 
+// FIX: preserve custom question on retry
 function retryRecording(){
   stopAllVideo();
-  // Save current attempt for comparison
+  cancelCurrentSession();
+  const savedQuestion=document.getElementById('custom-q').value;
   if(currentAnalysis){
     previousAttempt={
       fillerCount:currentAnalysis.fillers.count,
@@ -893,10 +941,15 @@ function retryRecording(){
   }
   if(videoUrl){URL.revokeObjectURL(videoUrl);videoUrl=null}
   currentAnalysis=null;
-  startRecording();
+  startRecording().then(()=>{
+    document.getElementById('custom-q').value=savedQuestion;
+  });
 }
 
+// FIX: add confirmation before discarding
 function discardSession(){
+  if(!confirm('Discard this recording?'))return;
+  cancelCurrentSession();
   stopAllVideo();
   if(videoUrl){URL.revokeObjectURL(videoUrl);videoUrl=null}
   currentAnalysis=null;
@@ -914,42 +967,38 @@ function resetAndHome(){
 function renderImprovementTips(){
   const el=document.getElementById('improvement-tips');
   if(!currentAnalysis){el.style.display='none';return}
-  
+
   const tips=[];
   const a=currentAnalysis;
-  
-  // Filler-specific tips
+
   const topFillers=[...new Set(a.fillers.found)].slice(0,3);
   if(topFillers.some(f=>['um','uh','er','erm','ah'].includes(f))){
-    tips.push({icon:'🤐',tip:'Replace "um/uh" with a pause. Close your mouth for half a second. Silence sounds confident, fillers sound uncertain.',priority:1});
+    tips.push({icon:'\uD83E\uDD10',tip:'Replace "um/uh" with a pause. Close your mouth for half a second. Silence sounds confident, fillers sound uncertain.',priority:1});
   }
   if(topFillers.some(f=>['sort of','kind of'].includes(f))){
-    tips.push({icon:'🎯',tip:'"Sort of" and "kind of" weaken your point. Either commit to what you\'re saying or don\'t say it. Drop the hedge.',priority:1});
+    tips.push({icon:'\uD83C\uDFAF',tip:'"Sort of" and "kind of" weaken your point. Either commit to what you\'re saying or don\'t say it. Drop the hedge.',priority:1});
   }
   if(topFillers.some(f=>['i think','i guess','i feel like'].includes(f))){
-    tips.push({icon:'💪',tip:'Replace "I think" with a direct statement. Instead of "I think the best approach is..." say "The best approach is..."',priority:1});
+    tips.push({icon:'\uD83D\uDCAA',tip:'Replace "I think" with a direct statement. Instead of "I think the best approach is..." say "The best approach is..."',priority:1});
   }
   if(topFillers.some(f=>['you know','i mean','basically'].includes(f))){
-    tips.push({icon:'✂️',tip:'"You know" and "basically" add zero information. Cut them entirely. Your sentence works without them.',priority:2});
+    tips.push({icon:'\u2702\uFE0F',tip:'"You know" and "basically" add zero information. Cut them entirely. Your sentence works without them.',priority:2});
   }
   if(topFillers.some(f=>['like'].includes(f))){
-    tips.push({icon:'🚫',tip:'"Like" as filler makes you sound younger and less authoritative. Pause instead. The pause makes you sound more thoughtful.',priority:2});
+    tips.push({icon:'\uD83D\uDEAB',tip:'"Like" as filler makes you sound younger and less authoritative. Pause instead. The pause makes you sound more thoughtful.',priority:2});
   }
   if(a.trailing.trailing){
-    tips.push({icon:'🎯',tip:'Your answer trailed off. Practice this: decide your last sentence BEFORE you say it. Make it short and declarative. Then stop.',priority:1});
+    tips.push({icon:'\uD83C\uDFAF',tip:'Your answer trailed off. Practice this: decide your last sentence BEFORE you say it. Make it short and declarative. Then stop.',priority:1});
   }
   if(a.tooLong){
-    tips.push({icon:'⏱️',tip:'Over 2 minutes. Most interview answers should be 60-90 seconds. Before answering, think: what\'s my point in 2 sentences? Then add detail.',priority:2});
+    tips.push({icon:'\u23F1\uFE0F',tip:'Over 2 minutes. Most interview answers should be 60-90 seconds. Before answering, think: what\'s my point in 2 sentences? Then add detail.',priority:2});
   }
   if(a.fillers.repeats>0){
-    tips.push({icon:'🔁',tip:'You repeated words (stuttered). This usually happens when you\'re thinking ahead while talking. Slow down — pause instead of repeating.',priority:2});
+    tips.push({icon:'\uD83D\uDD01',tip:'You repeated words (stuttered). This usually happens when you\'re thinking ahead while talking. Slow down \u2014 pause instead of repeating.',priority:2});
   }
-  
-  if(tips.length===0){
-    el.style.display='none';
-    return;
-  }
-  
+
+  if(tips.length===0){el.style.display='none';return}
+
   tips.sort((a,b)=>a.priority-b.priority);
   el.style.display='block';
   el.innerHTML=`
@@ -960,7 +1009,6 @@ function renderImprovementTips(){
         <span style="font-size:12px;color:#aaa;line-height:1.5">${t.tip}</span>
       </div>`).join('')}`;
 
-  // Retry comparison
   if(previousAttempt){
     const prev=previousAttempt;
     const fillerDiff=a.fillers.count-prev.fillerCount;
@@ -968,19 +1016,19 @@ function renderImprovementTips(){
     const better=fillerDiff<0&&!a.trailing.trailing;
     el.innerHTML+=`
       <div style="margin-top:12px;padding:12px;background:rgba(${better?'74,222,128':'255,107,107'},0.08);border:1px solid rgba(${better?'74,222,128':'255,107,107'},0.2);border-radius:10px">
-        <div style="font-size:11px;font-weight:700;color:${better?'var(--green)':'var(--red)'};margin-bottom:6px">${better?'↑ IMPROVED':'→ KEEP PRACTICING'}</div>
+        <div style="font-size:11px;font-weight:700;color:${better?'var(--green)':'var(--red)'};margin-bottom:6px">${better?'\u2191 IMPROVED':'\u2192 KEEP PRACTICING'}</div>
         <div style="font-size:11px;color:#888;line-height:1.6">
-          Fillers: ${prev.fillerCount} → ${a.fillers.count} (${fillerDiff>0?'+':''}${fillerDiff})<br>
-          Words: ${prev.words} → ${a.words} (${wordDiff>0?'+':''}${wordDiff})<br>
-          Ending: ${prev.trailing?'Trailed':'Clean'} → ${a.trailing.trailing?'Trailed':'Clean'}
+          Fillers: ${prev.fillerCount} \u2192 ${a.fillers.count} (${fillerDiff>0?'+':''}${fillerDiff})<br>
+          Words: ${prev.words} \u2192 ${a.words} (${wordDiff>0?'+':''}${wordDiff})<br>
+          Ending: ${prev.trailing?'Trailed':'Clean'} \u2192 ${a.trailing.trailing?'Trailed':'Clean'}
         </div>
       </div>`;
   }
 }
 
-// ═══════════════════════════════════════
+// =======================================
 // HISTORY
-// ═══════════════════════════════════════
+// =======================================
 function renderHistory(){
   const list=document.getElementById('history-list');
   const empty=document.getElementById('history-empty');
@@ -992,7 +1040,6 @@ function renderHistory(){
 
   empty.style.display='none';
 
-  // Summary
   if(state.entries.length>=3){
     const last7=state.entries.slice(-7);
     const avgF=(last7.reduce((a,e)=>a+(e.analysis?.fillerCount||0),0)/last7.length).toFixed(1);
@@ -1000,7 +1047,7 @@ function renderHistory(){
     const avgD=Math.round(last7.reduce((a,e)=>a+(e.duration||0),0)/last7.length);
     const trails=last7.filter(e=>e.analysis?.trailedOff).length;
     const confEntries=last7.filter(e=>e.analysis?.groqConfidence);
-    const avgConf=confEntries.length>0?(confEntries.reduce((a,e)=>a+e.analysis.groqConfidence,0)/confEntries.length).toFixed(1):'—';
+    const avgConf=confEntries.length>0?(confEntries.reduce((a,e)=>a+e.analysis.groqConfidence,0)/confEntries.length).toFixed(1):'\u2014';
     summary.style.display='block';
     summary.innerHTML=`
       <div class="label">LAST ${last7.length} SESSIONS</div>
@@ -1011,7 +1058,7 @@ function renderHistory(){
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
         <div class="stat-box"><div class="stat-num" style="font-size:18px;color:var(--dim)">${avgSF}</div><div class="stat-label">AVG SOFT</div></div>
-        <div class="stat-box"><div class="stat-num" style="font-size:18px;color:${avgConf!=='—'&&avgConf>=4?'var(--green)':avgConf!=='—'&&avgConf>=2.5?'var(--orange)':'var(--dim)'}">${avgConf}</div><div class="stat-label">AI CONFIDENCE</div></div>
+        <div class="stat-box"><div class="stat-num" style="font-size:18px;color:${avgConf!=='\u2014'&&avgConf>=4?'var(--green)':avgConf!=='\u2014'&&avgConf>=2.5?'var(--orange)':'var(--dim)'}">${avgConf}</div><div class="stat-label">AI CONFIDENCE</div></div>
       </div>`;
   }else{summary.style.display='none'}
 
@@ -1019,70 +1066,63 @@ function renderHistory(){
     const h=HABITS[e.habitId]||HABITS[0];
     const realIdx=state.entries.length-1-idx;
 
-    // Build expanded content
     let expanded='';
 
-    // Manual scores
     if(e.manualScores&&(e.manualScores.body||e.manualScores.energy||e.manualScores.confidence)){
       const parts=[];
       if(e.manualScores.body)parts.push(`Body: ${e.manualScores.body}/5`);
       if(e.manualScores.energy)parts.push(`Energy: ${e.manualScores.energy}/5`);
       if(e.manualScores.confidence)parts.push(`Confidence: ${e.manualScores.confidence}/5`);
-      expanded+=`<div style="font-size:10px;color:#666;margin-top:8px">Self: ${parts.join(' · ')}</div>`;
+      expanded+=`<div style="font-size:10px;color:#666;margin-top:8px">Self: ${parts.join(' \u00B7 ')}</div>`;
     }
 
-    // AI scores
     if(e.analysis&&(e.analysis.groqRepetition||e.analysis.groqConciseness||e.analysis.groqConfidence)){
       const parts=[];
-      if(e.analysis.groqEndingStrong!==null)parts.push(`Ending: ${e.analysis.groqEndingStrong?'✓':'✗'}`);
+      if(e.analysis.groqEndingStrong!==null)parts.push(`Ending: ${e.analysis.groqEndingStrong?'\u2713':'\u2717'}`);
       if(e.analysis.groqRepetition)parts.push(`Repetition: ${e.analysis.groqRepetition}/5`);
       if(e.analysis.groqConciseness)parts.push(`Concise: ${e.analysis.groqConciseness}/5`);
       if(e.analysis.groqConfidence)parts.push(`Confidence: ${e.analysis.groqConfidence}/5`);
-      expanded+=`<div style="font-size:10px;color:var(--blue);margin-top:4px">AI: ${parts.join(' · ')}</div>`;
+      expanded+=`<div style="font-size:10px;color:var(--blue);margin-top:4px">AI: ${parts.join(' \u00B7 ')}</div>`;
     }
 
-    // Coaching
     if(e.analysis?.groqCoaching){
-      expanded+=`<div style="font-size:10px;color:var(--green);margin-top:6px;padding:8px;background:rgba(74,222,128,0.05);border-radius:6px">💡 ${e.analysis.groqCoaching}</div>`;
+      expanded+=`<div style="font-size:10px;color:var(--green);margin-top:6px;padding:8px;background:rgba(74,222,128,0.05);border-radius:6px">\uD83D\uDCA1 ${esc(e.analysis.groqCoaching)}</div>`;
     }
 
-    // Filler breakdown
     if(e.analysis?.fillerWords?.length>0){
       const unique=[...new Set(e.analysis.fillerWords)];
       expanded+=`<div style="font-size:10px;color:#888;margin-top:6px">Hard fillers: ${unique.map(f=>{
         const c=e.analysis.fillerWords.filter(x=>x===f).length;
-        return f+(c>1?' ×'+c:'');
+        return esc(f)+(c>1?' \u00D7'+c:'');
       }).join(', ')}</div>`;
     }
     if(e.analysis?.softFillerWords?.length>0){
       const unique=[...new Set(e.analysis.softFillerWords)];
       expanded+=`<div style="font-size:10px;color:#555;margin-top:2px">Soft fillers: ${unique.map(f=>{
         const c=e.analysis.softFillerWords.filter(x=>x===f).length;
-        return f+(c>1?' ×'+c:'');
+        return esc(f)+(c>1?' \u00D7'+c:'');
       }).join(', ')}</div>`;
     }
 
-    // Notes
     if(e.notes){
-      expanded+=`<div style="font-size:10px;color:#888;margin-top:6px;padding:8px;background:rgba(255,255,255,0.03);border-radius:6px;border-left:2px solid var(--dim)">📝 ${e.notes}</div>`;
+      expanded+=`<div style="font-size:10px;color:#888;margin-top:6px;padding:8px;background:rgba(255,255,255,0.03);border-radius:6px;border-left:2px solid var(--dim)">\uD83D\uDCDD ${esc(e.notes)}</div>`;
     }
 
-    // Transcript
     if(e.transcript){
       expanded+=`<details style="margin-top:8px"><summary style="font-size:10px;color:#444;cursor:pointer">View transcript</summary>
-        <div style="font-size:10px;color:#555;line-height:1.5;padding:8px;background:rgba(0,0,0,0.3);border-radius:6px;margin-top:4px;max-height:150px;overflow:auto">${e.transcript}</div></details>`;
+        <div style="font-size:10px;color:#555;line-height:1.5;padding:8px;background:rgba(0,0,0,0.3);border-radius:6px;margin-top:4px;max-height:150px;overflow:auto">${esc(e.transcript)}</div></details>`;
     }
 
     return `<div class="card history-item" onclick="toggleHistoryItem(${realIdx})" style="cursor:pointer">
       <div style="display:flex;justify-content:space-between;margin-bottom:4px">
-        <span style="font-size:11px;color:${h.color};font-weight:700">${h.emoji} ${h.name}</span>
+        <span style="font-size:11px;color:${h.color};font-weight:700">${h.emoji} ${esc(h.name)}</span>
         <div style="display:flex;align-items:center;gap:6px">
           ${e.analysis?.whisperUsed?'<span style="font-size:8px;color:var(--green)">W</span>':''}
           <span style="font-size:10px;color:#333">${e.date}</span>
-          <span id="chevron-${realIdx}" style="font-size:10px;color:#333;transition:transform 0.2s">▼</span>
+          <span id="chevron-${realIdx}" style="font-size:10px;color:#333;transition:transform 0.2s">\u25BC</span>
         </div>
       </div>
-      <div style="font-size:11px;color:#555;font-style:italic;margin-bottom:4px">"${e.question}"</div>
+      <div style="font-size:11px;color:#555;font-style:italic;margin-bottom:4px">\u201C${esc(e.question)}\u201D</div>
       <div style="display:flex;gap:10px;font-size:10px;flex-wrap:wrap">
         <span style="color:var(--dim)">${e.duration}s</span>
         ${e.analysis?`
@@ -1112,22 +1152,22 @@ function toggleHistoryItem(idx){
   }
 }
 
-// ═══════════════════════════════════════
+// =======================================
 // SETTINGS
-// ═══════════════════════════════════════
+// =======================================
 function renderSettings(){
   document.getElementById('groq-key').value=state.settings.groqKey||'';
   document.getElementById('notif-time').value=state.settings.notifTime||'09:00';
-  
+
   const toggle=document.getElementById('notif-toggle');
   toggle.className=`toggle ${state.settings.notifEnabled?'on':'off'}`;
   document.getElementById('notif-time').style.display=state.settings.notifEnabled?'block':'none';
   document.getElementById('notif-note').style.display=state.settings.notifEnabled?'block':'none';
-  
+
   renderCustomQuestions();
-  
+
   if(state.settings.groqKey){
-    document.getElementById('groq-status').innerHTML=`<span class="groq-badge">✓ Key saved</span>`;
+    document.getElementById('groq-status').innerHTML=`<span class="groq-badge">\u2713 Key saved</span>`;
   }else{
     document.getElementById('groq-status').innerHTML='';
   }
@@ -1137,9 +1177,9 @@ function saveSettings(){
   state.settings.groqKey=document.getElementById('groq-key').value.trim();
   state.settings.notifTime=document.getElementById('notif-time').value;
   save();
-  
+
   if(state.settings.groqKey){
-    document.getElementById('groq-status').innerHTML=`<span class="groq-badge">✓ Key saved</span>`;
+    document.getElementById('groq-status').innerHTML=`<span class="groq-badge">\u2713 Key saved</span>`;
   }else{
     document.getElementById('groq-status').innerHTML='';
   }
@@ -1169,7 +1209,6 @@ async function toggleNotifications(){
 
 function scheduleReminder(){
   if(!state.settings.notifEnabled)return;
-  // Check every minute if it's reminder time
   setInterval(()=>{
     if(!state.settings.notifEnabled)return;
     const now=new Date();
@@ -1200,8 +1239,8 @@ function renderCustomQuestions(){
   }
   list.innerHTML=qs.map((q,i)=>`
     <div class="q-item">
-      <span>${q}</span>
-      <button class="q-remove" onclick="removeCustomQuestion(${i})">×</button>
+      <span>${esc(q)}</span>
+      <button class="q-remove" onclick="removeCustomQuestion(${i})">\u00D7</button>
     </div>`).join('');
 }
 
@@ -1222,9 +1261,9 @@ function removeCustomQuestion(i){
   renderCustomQuestions();
 }
 
-// ═══════════════════════════════════════
+// =======================================
 // EXPORT & SHARE
-// ═══════════════════════════════════════
+// =======================================
 function filterEntries(range){
   const now=new Date();
   const todayStr=today();
@@ -1252,10 +1291,10 @@ function rangeName(range){
 function generateExportText(range){
   const entries=filterEntries(range);
   const label=rangeName(range);
-  let t=`DELIVERY COACH — ${label.toUpperCase()}\n`;
+  let t=`DELIVERY COACH \u2014 ${label.toUpperCase()}\n`;
   t+=`Generated: ${new Date().toLocaleDateString('en-GB')}\n`;
   t+=`Sessions in range: ${entries.length} | Total all-time: ${state.entries.length} | Streak: ${getStreak()} days | Unique days: ${uniqueDays()}\n`;
-  t+="════════════════════════════════\n\n";
+  t+="\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\n\n";
 
   if(entries.length===0){
     t+="No sessions in this range.\n";
@@ -1264,8 +1303,8 @@ function generateExportText(range){
 
   entries.forEach(e=>{
     const h=HABITS[e.habitId]||HABITS[0];
-    t+=`${h.emoji} ${e.date} — ${h.name}${e.analysis?.whisperUsed?' [Whisper]':''}\n`;
-    t+=`Q: "${e.question}"\n`;
+    t+=`${h.emoji} ${e.date} \u2014 ${h.name}${e.analysis?.whisperUsed?' [Whisper]':''}\n`;
+    t+=`Q: \u201C${e.question}\u201D\n`;
     t+=`Duration: ${e.duration}s`;
     if(e.analysis){
       t+=` | Words: ${e.analysis.wordCount} | WPM: ${e.analysis.wpm}`;
@@ -1296,7 +1335,8 @@ function generateExportText(range){
       if(e.analysis.groqContentNote)t+=`Content note: ${e.analysis.groqContentNote}\n`;
     }
     if(e.notes)t+=`Notes: ${e.notes}\n`;
-    if(e.transcript)t+=`Transcript: ${e.transcript.substring(0,300)}${e.transcript.length>300?'...':''}\n`;
+    // FIX: full transcript in export (no 300-char limit)
+    if(e.transcript)t+=`Transcript: ${e.transcript}\n`;
     t+='\n';
   });
 
@@ -1309,7 +1349,7 @@ function generateExportText(range){
     const avgConf=confEntries.length>0?(confEntries.reduce((a,e)=>a+e.analysis.groqConfidence,0)/confEntries.length).toFixed(1):'N/A';
     const contentEntries=entries.filter(e=>e.analysis?.groqContent);
     const avgContent=contentEntries.length>0?(contentEntries.reduce((a,e)=>a+e.analysis.groqContent,0)/contentEntries.length).toFixed(1):'N/A';
-    t+="════════════════════════════════\n";
+    t+="\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\n";
     t+=`SUMMARY (${entries.length} sessions):\n`;
     t+=`Avg hard fillers: ${avgF} | Avg soft fillers: ${avgSF}\n`;
     t+=`Avg duration: ${avgD}s | Trailed: ${trails}/${entries.length}\n`;
@@ -1318,6 +1358,7 @@ function generateExportText(range){
   return t;
 }
 
+// FIX: clipboard error handling
 function exportData(range){
   range=range||'all';
   const text=generateExportText(range);
@@ -1325,15 +1366,22 @@ function exportData(range){
     navigator.clipboard.writeText(text).then(()=>{
       const el=document.getElementById('export-status');
       el.style.display='block';
-      el.textContent=`✓ ${rangeName(range)} copied to clipboard`;
+      el.style.color='var(--green)';
+      el.textContent=`\u2713 ${rangeName(range)} copied to clipboard`;
       setTimeout(()=>{el.style.display='none'},2500);
+    }).catch(()=>{
+      const el=document.getElementById('export-status');
+      el.style.display='block';
+      el.style.color='var(--orange)';
+      el.textContent='Clipboard not available \u2014 try the Share button instead';
+      setTimeout(()=>{el.style.display='none'},3000);
     });
   }
 }
 
 function shareData(){
   const text=generateExportText('week');
-  const title=`Delivery Coach — ${rangeName('week')}`;
+  const title=`Delivery Coach \u2014 ${rangeName('week')}`;
   if(navigator.share){
     navigator.share({title,text}).catch(()=>{});
   }else{
@@ -1348,18 +1396,16 @@ function resetAllData(){
   }
 }
 
-// ═══════════════════════════════════════
+// =======================================
 // INIT
-// ═══════════════════════════════════════
+// =======================================
 load();
 renderHome();
 
-// Register service worker
 if('serviceWorker' in navigator){
   navigator.serviceWorker.register('sw.js').catch(()=>{});
 }
 
-// Schedule notifications if enabled
 if(state.settings.notifEnabled)scheduleReminder();
 </script>
 </body>
