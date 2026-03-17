@@ -959,7 +959,7 @@ function renderImprovementTips(){
     const better=fillerDiff<0&&!a.trailing.trailing;
     el.innerHTML+=`
       <div style="margin-top:12px;padding:12px;background:rgba(${better?'74,222,128':'255,107,107'},0.08);border:1px solid rgba(${better?'74,222,128':'255,107,107'},0.2);border-radius:10px">
-        <div style="font-size:11px;font-weight:700;color:${better?'var(--green)':'var(--red)');margin-bottom:6px">${better?'↑ IMPROVED':'→ KEEP PRACTICING'}</div>
+        <div style="font-size:11px;font-weight:700;color:${better?'var(--green)':'var(--red)'};margin-bottom:6px">${better?'↑ IMPROVED':'→ KEEP PRACTICING'}</div>
         <div style="font-size:11px;color:#888;line-height:1.6">
           Fillers: ${prev.fillerCount} → ${a.fillers.count} (${fillerDiff>0?'+':''}${fillerDiff})<br>
           Words: ${prev.words} → ${a.words} (${wordDiff>0?'+':''}${wordDiff})<br>
