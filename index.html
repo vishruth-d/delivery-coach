@@ -146,7 +146,8 @@ details summary{font-size:11px;color:#555;cursor:pointer;margin-bottom:8px}
   <div style="font-size:56px;margin-bottom:16px">&#x2713;</div>
   <h2 style="font-size:22px;font-weight:800;color:#fff;margin-bottom:8px">Logged</h2>
   <p id="logged-info" style="font-size:13px;color:var(--dim);margin-bottom:4px"></p>
-  <p id="logged-next" style="font-size:12px;color:#444;margin-bottom:32px"></p>
+  <p id="logged-next" style="font-size:12px;color:#444;margin-bottom:16px"></p>
+  <div id="progress-monitor" style="display:none;width:100%;max-width:400px;margin-bottom:20px"></div>
   <button class="btn" id="logged-back-btn" onclick="resetAndHome()">BACK TO HOME</button>
 </div>
 </div>
@@ -583,40 +584,94 @@ function updateLiveTranscript(){
 }
 
 function stopRecording(){
+  // FIX: grace period — keep recognition alive briefly to capture final words
   recording.active=false;
   clearInterval(timerInterval);
-  if(recognition)try{recognition.stop()}catch(e){}
+
+  // Stop media recorder and camera immediately
   if(mediaRecorder&&mediaRecorder.state!=='inactive')mediaRecorder.stop();
   if(stream)stream.getTracks().forEach(t=>t.stop());
 
-  const text=recording.transcript;
-  const dur=recording.timer;
-  manualScores={body:null,energy:null,confidence:null};
-  document.getElementById('session-notes').value='';
+  // Show a brief "processing" state
+  const stopBtn=document.querySelector('.stop-btn');
+  if(stopBtn)stopBtn.style.opacity='0.3';
+  const liveEl=document.getElementById('live-transcript');
+  if(liveEl&&recording.transcript){
+    liveEl.innerHTML+=`<div style="color:#555;font-size:11px;margin-top:6px;font-style:italic">Processing final words...</div>`;
+  }
 
-  if(text.trim().length>10){
-    const fillers=countFillers(text);
-    const trailing=analyzeTrailing(text);
-    const words=text.trim().split(/\s+/).filter(Boolean).length;
-    const wpm=dur>0?(words/dur)*60:0;
-    currentAnalysis={fillers,trailing,words,wpm,duration:dur,
-      pauses:recording.pauses,tooLong:dur>120,highlighted:highlightFillers(text),raw:text};
-  }else{currentAnalysis=null}
+  // Give speech recognition a grace period to deliver final results
+  const gracePeriod=2500; // ms to wait for final speech results
+  const transcriptBefore=recording.transcript;
+  let graceTimer=setTimeout(()=>{finishStop()},gracePeriod);
 
-  renderResults();
-  showScreen('results');
-
-  // FIX: capture session id to cancel stale async callbacks
-  const thisSession=currentSessionId;
-  if(state.settings.groqKey){
-    const waitForBlob=setInterval(()=>{
-      if(currentSessionId!==thisSession){clearInterval(waitForBlob);return}
-      if(videoBlob){
-        clearInterval(waitForBlob);
-        runWhisperTranscription(videoBlob,dur,thisSession);
+  // If we get new final results during grace, reset the timer
+  const origOnResult=recognition?recognition.onresult:null;
+  if(recognition){
+    recognition.onresult=e=>{
+      // Process results same as before
+      const now=Date.now();
+      const gap=now-recording.lastSpeech;
+      if(gap>1500&&recording.lastSpeech>0)recording.pauses.push(gap/1000);
+      recording.lastSpeech=now;
+      let interim="";
+      for(let i=recording.resultIndex;i<e.results.length;i++){
+        if(e.results[i].isFinal){
+          recording.transcript+=e.results[i][0].transcript+" ";
+          recording.resultIndex=i+1;
+        }else{
+          interim+=e.results[i][0].transcript;
+        }
       }
-    },200);
-    setTimeout(()=>clearInterval(waitForBlob),10000);
+      recording.interim=interim;
+      updateLiveTranscript();
+      // Reset grace timer — more words coming
+      clearTimeout(graceTimer);
+      graceTimer=setTimeout(()=>{finishStop()},1500);
+    };
+    // Also catch the end event during grace period
+    recognition.onend=()=>{
+      // Recognition ended naturally, finish after short delay for any pending results
+      clearTimeout(graceTimer);
+      graceTimer=setTimeout(()=>{finishStop()},500);
+    };
+  }
+
+  let finished=false;
+  function finishStop(){
+    if(finished)return;
+    finished=true;
+    if(recognition)try{recognition.stop()}catch(e){}
+
+    const text=recording.transcript;
+    const dur=recording.timer;
+    manualScores={body:null,energy:null,confidence:null};
+    document.getElementById('session-notes').value='';
+
+    if(text.trim().length>10){
+      const fillers=countFillers(text);
+      const trailing=analyzeTrailing(text);
+      const words=text.trim().split(/\s+/).filter(Boolean).length;
+      const wpm=dur>0?(words/dur)*60:0;
+      currentAnalysis={fillers,trailing,words,wpm,duration:dur,
+        pauses:recording.pauses,tooLong:dur>120,highlighted:highlightFillers(text),raw:text};
+    }else{currentAnalysis=null}
+
+    renderResults();
+    showScreen('results');
+
+    // Capture session id to cancel stale async callbacks
+    const thisSession=currentSessionId;
+    if(state.settings.groqKey){
+      const waitForBlob=setInterval(()=>{
+        if(currentSessionId!==thisSession){clearInterval(waitForBlob);return}
+        if(videoBlob){
+          clearInterval(waitForBlob);
+          runWhisperTranscription(videoBlob,dur,thisSession);
+        }
+      },200);
+      setTimeout(()=>clearInterval(waitForBlob),15000);
+    }
   }
 }
 
@@ -746,7 +801,7 @@ async function runWhisperTranscription(audioBlob,duration,sessionId){
     formData.append('model','whisper-large-v3');
     formData.append('language','en');
     formData.append('response_format','json');
-    formData.append('prompt','Um, uh, er, erm, ah, like, you know, sort of, kind of, I guess, basically, right, yeah, so yeah, I mean, honestly, actually, I think, and stuff. Transcribe verbatim including all hesitations, filler words, false starts, and disfluencies. Never remove or clean up ums, uhs, or repeated words.');
+    formData.append('prompt','Um, uh, um, er, erm, ah, uh, like, you know, sort of, kind of, I guess, basically, right, yeah, so yeah, I mean, honestly, actually, I think, and stuff, um, uh. Interview practice recording. Transcribe every single word exactly as spoken. Keep ALL hesitations: um, uh, er, erm, ah. Keep ALL filler words: like, you know, sort of, kind of, basically, I guess, I mean, right, yeah, so yeah. Keep ALL false starts and repeated words. Never clean up or remove any disfluencies. This is for speech coaching \u2014 accuracy of hesitations matters more than readability.');
 
     const res=await fetch('https://api.groq.com/openai/v1/audio/transcriptions',{
       method:'POST',
@@ -805,10 +860,15 @@ async function runWhisperTranscription(audioBlob,duration,sessionId){
 // GROQ AI COACHING ANALYSIS
 // =======================================
 async function runGroqAnalysis(text,duration,question,sessionId){
-  if(currentSessionId!==sessionId)return; // FIX: bail if session changed
+  if(currentSessionId!==sessionId)return;
   const el=document.getElementById('groq-analysis');
   el.style.display='block';
-  el.innerHTML=`<div style="padding:12px;background:rgba(74,222,128,0.06);border:1px solid rgba(74,222,128,0.15);border-radius:10px;font-size:12px;color:var(--green)">Analysing with AI...</div>`;
+  el.innerHTML=`<div style="padding:12px;background:rgba(74,222,128,0.06);border:1px solid rgba(74,222,128,0.15);border-radius:10px;font-size:12px;color:var(--green)">\uD83E\uDDE0 Analysing your answer to \u201C${esc((question||'').substring(0,50))}...\u201D</div>`;
+
+  // Build context from recent sessions for this question (if any)
+  const previousAnswers=state.entries.filter(e=>e.question===question).slice(-3);
+  const historyContext=previousAnswers.length>0?
+    `\n\nPrevious attempts at this question:\n${previousAnswers.map((e,i)=>`Attempt ${i+1}: ${e.duration}s, ${e.analysis?.fillerCount||0} fillers, ${e.analysis?.groqCoaching||'no coaching logged'}`).join('\n')}`:'';
 
   try{
     const res=await fetch('https://api.groq.com/openai/v1/chat/completions',{
@@ -816,18 +876,30 @@ async function runGroqAnalysis(text,duration,question,sessionId){
       headers:{'Content-Type':'application/json','Authorization':`Bearer ${state.settings.groqKey}`},
       body:JSON.stringify({
         model:'llama-3.3-70b-versatile',
-        messages:[{role:'system',content:`You are a brutally honest speech delivery coach for interview practice. The transcript was captured with Whisper and includes filler words (um, uh, er, like, sort of, etc).
+        messages:[{role:'system',content:`You are a brutally honest interview delivery coach. You understand what good answers to interview questions sound like.
 
-The person was answering this interview question: "${question||'unknown'}"
+QUESTION BEING ANSWERED: "${question||'unknown'}"
 
-Analyse BOTH the delivery AND the content of their answer relative to the question. Your coaching should be specific to what they said and what they were trying to answer \u2014 not generic advice.
+Your job is to evaluate BOTH how they said it (delivery) AND what they said (content relevance to the question). Be specific \u2014 reference actual phrases and points from their transcript. Never give generic advice like "be more confident" without saying exactly WHERE they lost confidence.${historyContext}
 
 Respond ONLY in valid JSON, no markdown, no backticks, no preamble.
 
 JSON format:
-{"fillers":{"missed":["any filler words or hedging phrases the automated counter might have missed"]},"ending":{"strong":true/false,"note":"Why in 10 words max"},"repetition":{"score":1,"note":"Did they repeat the same point? 10 words max. 1=very repetitive, 5=no repetition"},"overexplaining":{"score":1,"note":"Did they make the point and stop? 1=rambled, 5=concise"},"confidence":{"score":1,"note":"Did they sound sure of themselves? 1=uncertain, 5=commanding"},"content":{"score":1,"note":"Did they actually answer the question well? 15 words max. 1=missed the point, 5=nailed it"},"coaching":"One specific actionable sentence under 25 words referencing what they actually said. Be direct."}`},
-          {role:'user',content:`Question: "${question||'unknown'}"\nTranscript (${duration} seconds):\n${text}`}],
-        temperature:0.2,max_tokens:500
+{
+  "fillers":{"missed":["any filler words/hedging phrases the auto-counter might have missed"]},
+  "ending":{"strong":true/false,"note":"10 words max explaining why"},
+  "repetition":{"score":1,"note":"Did they circle back to the same point? Reference specific repeated content. 1=very repetitive, 5=each sentence adds new info"},
+  "overexplaining":{"score":1,"note":"Reference where they rambled or were sharp. 1=rambled, 5=concise"},
+  "confidence":{"score":1,"note":"Reference specific moments of hedging or conviction. 1=uncertain, 5=commanding"},
+  "content":{"score":1,"note":"Did they answer THIS specific question well? What was missing or strong? 25 words max. 1=missed the point, 5=nailed it"},
+  "structure":{"score":1,"note":"Was the answer well-organised? Clear opening, supporting points, strong close? 1=scattered, 5=well-structured"},
+  "keyInsight":"What was the single strongest thing they said? Quote 3-8 words from transcript.",
+  "biggestGap":"What was the most important thing they SHOULD have said for this question but didn't? Be specific to the question.",
+  "coaching":"One specific actionable sentence under 30 words. Reference what they actually said. Example: Instead of saying 'I kind of helped with the project', try 'I led the migration which reduced latency by 40%'.",
+  "rewriteSuggestion":"Rewrite their weakest sentence into a stronger version. Keep it under 20 words."
+}`},
+          {role:'user',content:`Question: "${question||'unknown'}"\nDuration: ${duration} seconds\nTranscript:\n${text}`}],
+        temperature:0.3,max_tokens:700
       })
     });
 
@@ -840,27 +912,71 @@ JSON format:
     const result=JSON.parse(content);
 
     if(currentSessionId!==sessionId)return;
-    el.innerHTML=`
+
+    // Build rich coaching UI
+    let coachHTML=`
       <div style="padding:14px;background:rgba(74,222,128,0.06);border:1px solid rgba(74,222,128,0.15);border-radius:10px">
         <div style="display:flex;align-items:center;gap:6px;margin-bottom:10px">
           <span class="groq-badge">AI COACHING</span>
+          <span style="font-size:9px;color:#555">for \u201C${esc((question||'').substring(0,40))}${(question||'').length>40?'...':''}\u201D</span>
         </div>
-        <div style="font-size:13px;color:var(--green);font-weight:700;margin-bottom:12px;line-height:1.5">${esc(result.coaching||'')}</div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:11px">
-          <div style="padding:6px 8px;background:rgba(0,0,0,0.2);border-radius:6px;color:#888">Ending: <span style="color:${result.ending?.strong?'var(--green)':'var(--red)'};font-weight:700">${result.ending?.strong?'Strong':'Weak'}</span></div>
-          <div style="padding:6px 8px;background:rgba(0,0,0,0.2);border-radius:6px;color:#888">Repetition: <span style="color:${(result.repetition?.score||0)>=4?'var(--green)':(result.repetition?.score||0)>=2?'var(--orange)':'var(--red)'};font-weight:700">${result.repetition?.score||'?'}/5</span></div>
-          <div style="padding:6px 8px;background:rgba(0,0,0,0.2);border-radius:6px;color:#888">Conciseness: <span style="color:${(result.overexplaining?.score||0)>=4?'var(--green)':(result.overexplaining?.score||0)>=2?'var(--orange)':'var(--red)'};font-weight:700">${result.overexplaining?.score||'?'}/5</span></div>
-          <div style="padding:6px 8px;background:rgba(0,0,0,0.2);border-radius:6px;color:#888">Confidence: <span style="color:${(result.confidence?.score||0)>=4?'var(--green)':(result.confidence?.score||0)>=2?'var(--orange)':'var(--red)'};font-weight:700">${result.confidence?.score||'?'}/5</span></div>
-          <div style="padding:6px 8px;background:rgba(0,0,0,0.2);border-radius:6px;color:#888;grid-column:span 2">Content: <span style="color:${(result.content?.score||0)>=4?'var(--green)':(result.content?.score||0)>=2?'var(--orange)':'var(--red)'};font-weight:700">${result.content?.score||'?'}/5</span> <span style="color:#555;font-size:10px">${esc(result.content?.note||'')}</span></div>
-        </div>
-        ${result.ending?.note?`<div style="font-size:10px;color:#555;margin-top:8px">Ending: ${esc(result.ending.note)}</div>`:''}
-        ${result.repetition?.note?`<div style="font-size:10px;color:#555;margin-top:3px">Repetition: ${esc(result.repetition.note)}</div>`:''}
-        ${result.overexplaining?.note?`<div style="font-size:10px;color:#555;margin-top:3px">Conciseness: ${esc(result.overexplaining.note)}</div>`:''}
-        ${result.confidence?.note?`<div style="font-size:10px;color:#555;margin-top:3px">Confidence: ${esc(result.confidence.note)}</div>`:''}
-        ${result.fillers?.missed?.length?`<div style="font-size:10px;color:var(--orange);margin-top:6px">AI also spotted: ${esc(result.fillers.missed.join(', '))}</div>`:''}
-      </div>`;
+        <div style="font-size:13px;color:var(--green);font-weight:700;margin-bottom:12px;line-height:1.5">\uD83D\uDCA1 ${esc(result.coaching||'')}</div>`;
 
-    if(currentAnalysis)currentAnalysis.groq=result;
+    // Key insight and biggest gap
+    if(result.keyInsight){
+      coachHTML+=`<div style="font-size:11px;color:var(--blue);margin-bottom:6px;padding:8px;background:rgba(107,223,255,0.06);border-radius:6px;border-left:3px solid var(--blue)">\u2B50 Strongest moment: \u201C${esc(result.keyInsight)}\u201D</div>`;
+    }
+    if(result.biggestGap){
+      coachHTML+=`<div style="font-size:11px;color:var(--orange);margin-bottom:6px;padding:8px;background:rgba(255,163,107,0.06);border-radius:6px;border-left:3px solid var(--orange)">\u26A0\uFE0F Missing: ${esc(result.biggestGap)}</div>`;
+    }
+    if(result.rewriteSuggestion){
+      coachHTML+=`<div style="font-size:11px;color:#aaa;margin-bottom:10px;padding:8px;background:rgba(255,255,255,0.03);border-radius:6px;border-left:3px solid var(--purple)">\u270F\uFE0F Try saying: \u201C${esc(result.rewriteSuggestion)}\u201D</div>`;
+    }
+
+    // Score grid
+    coachHTML+=`<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;font-size:11px">`;
+    const scores=[
+      ['Content',result.content?.score,'Did you answer the question?'],
+      ['Structure',result.structure?.score,'Was it organised?'],
+      ['Concise',result.overexplaining?.score,'Did you ramble?'],
+      ['Confidence',result.confidence?.score,'Sound sure?'],
+      ['Repetition',result.repetition?.score,'Repeat yourself?'],
+      ['Ending',result.ending?.strong?5:1,result.ending?.strong?'Strong':'Weak']
+    ];
+    scores.forEach(([label,score,desc])=>{
+      const s=score||0;
+      const col=s>=4?'var(--green)':s>=2?'var(--orange)':'var(--red)';
+      coachHTML+=`<div style="padding:8px 6px;background:rgba(0,0,0,0.2);border-radius:6px;text-align:center">
+        <div style="color:${col};font-weight:700;font-size:14px">${label==='Ending'?(result.ending?.strong?'\u2713':'\u2717'):s+'/5'}</div>
+        <div style="color:#555;font-size:9px;margin-top:2px">${label}</div>
+      </div>`;
+    });
+    coachHTML+=`</div>`;
+
+    // Detail notes
+    const notes=[
+      result.content?.note?`Content: ${esc(result.content.note)}`:null,
+      result.structure?.note?`Structure: ${esc(result.structure.note)}`:null,
+      result.ending?.note?`Ending: ${esc(result.ending.note)}`:null,
+      result.repetition?.note?`Repetition: ${esc(result.repetition.note)}`:null,
+      result.overexplaining?.note?`Conciseness: ${esc(result.overexplaining.note)}`:null,
+      result.confidence?.note?`Confidence: ${esc(result.confidence.note)}`:null
+    ].filter(Boolean);
+    if(notes.length){
+      coachHTML+=`<div style="margin-top:10px;font-size:10px;color:#555;line-height:1.6">${notes.join('<br>')}</div>`;
+    }
+    if(result.fillers?.missed?.length){
+      coachHTML+=`<div style="font-size:10px;color:var(--orange);margin-top:6px">AI also spotted: ${esc(result.fillers.missed.join(', '))}</div>`;
+    }
+    coachHTML+=`</div>`;
+
+    el.innerHTML=coachHTML;
+
+    // Store rich result for logging
+    if(currentAnalysis){
+      currentAnalysis.groq=result;
+      currentAnalysis.groq._question=question;
+    }
   }catch(e){
     if(currentSessionId!==sessionId)return;
     el.innerHTML=`<div style="padding:12px;background:rgba(255,80,80,0.08);border:1px solid rgba(255,80,80,0.2);border-radius:10px;font-size:11px;color:#ff8888">
@@ -903,7 +1019,11 @@ function logSession(){
       groqConciseness:currentAnalysis.groq?.overexplaining?.score||null,
       groqConfidence:currentAnalysis.groq?.confidence?.score||null,
       groqContent:currentAnalysis.groq?.content?.score||null,
-      groqContentNote:currentAnalysis.groq?.content?.note||null
+      groqContentNote:currentAnalysis.groq?.content?.note||null,
+      groqStructure:currentAnalysis.groq?.structure?.score||null,
+      groqKeyInsight:currentAnalysis.groq?.keyInsight||null,
+      groqBiggestGap:currentAnalysis.groq?.biggestGap||null,
+      groqRewrite:currentAnalysis.groq?.rewriteSuggestion||null
     }:null,
     manualScores:{...manualScores},
     notes:document.getElementById('session-notes').value,
@@ -921,7 +1041,97 @@ function logSession(){
   const nextHabit=HABITS[(uniqueDays())%4];
   document.getElementById('logged-next').textContent=`Tomorrow: ${nextHabit.emoji} ${nextHabit.name}`;
   document.getElementById('logged-back-btn').style.background=h.color;
+  document.getElementById('progress-monitor').style.display='none';
   showScreen('logged');
+
+  // Run progress monitor asynchronously (needs 3+ sessions)
+  runProgressMonitor();
+}
+
+// =======================================
+// PROGRESS MONITOR (runs after logging, analyses trends)
+// =======================================
+async function runProgressMonitor(){
+  if(!state.settings.groqKey||state.entries.length<3)return;
+  const el=document.getElementById('progress-monitor');
+  el.style.display='block';
+  el.innerHTML=`<div style="padding:12px;background:rgba(176,107,255,0.06);border:1px solid rgba(176,107,255,0.15);border-radius:12px;font-size:12px;color:var(--purple);text-align:center">\uD83D\uDCCA Analysing your progress...</div>`;
+
+  // Build session summary for the LLM
+  const recent=state.entries.slice(-10);
+  const sessionSummary=recent.map((e,i)=>{
+    const parts=[`Session ${i+1}: ${e.date}`,`Q: "${e.question}"`,`${e.duration}s`];
+    if(e.analysis){
+      parts.push(`${e.analysis.fillerCount} hard fillers, ${e.analysis.softFillerCount||0} soft`);
+      parts.push(`${e.analysis.wordCount}w, ${e.analysis.wpm}wpm`);
+      parts.push(e.analysis.trailedOff?'trailed off':'landed clean');
+      if(e.analysis.groqContent)parts.push(`content: ${e.analysis.groqContent}/5`);
+      if(e.analysis.groqConfidence)parts.push(`confidence: ${e.analysis.groqConfidence}/5`);
+      if(e.analysis.groqStructure)parts.push(`structure: ${e.analysis.groqStructure}/5`);
+      if(e.analysis.groqCoaching)parts.push(`coaching: ${e.analysis.groqCoaching}`);
+    }
+    return parts.join(' | ');
+  }).join('\n');
+
+  try{
+    const res=await fetch('https://api.groq.com/openai/v1/chat/completions',{
+      method:'POST',
+      headers:{'Content-Type':'application/json','Authorization':`Bearer ${state.settings.groqKey}`},
+      body:JSON.stringify({
+        model:'llama-3.3-70b-versatile',
+        messages:[{role:'system',content:`You are a progress coach analysing interview practice session data. Look at trends across sessions \u2014 not just the latest one.
+
+Respond ONLY in valid JSON. No markdown, no backticks.
+
+JSON format:
+{
+  "trend":"improving" or "plateauing" or "declining" or "too_early",
+  "headline":"One punchy sentence summarising their trajectory. Be specific about what changed.",
+  "fillerTrend":"Are fillers going up, down, or stable? Reference actual numbers.",
+  "contentTrend":"Is the quality of their answers improving? Reference specific sessions if possible.",
+  "biggestWin":"What's the most notable improvement across these sessions? Be specific.",
+  "stuckOn":"What pattern keeps repeating that they haven't fixed yet? Be specific.",
+  "nextFocus":"One concrete thing to work on in their next session. Not generic \u2014 based on their actual data.",
+  "weeklyScore":1
+}
+
+weeklyScore: 1-5 overall progress rating. 1=no improvement, 3=steady progress, 5=major breakthrough.`},
+          {role:'user',content:`Total sessions all-time: ${state.entries.length}\nStreak: ${getStreak()} days\n\nLast ${recent.length} sessions:\n${sessionSummary}`}],
+        temperature:0.3,max_tokens:500
+      })
+    });
+
+    if(!res.ok)throw new Error(await res.text());
+    const data=await res.json();
+    let content=data.choices[0].message.content.trim();
+    content=content.replace(/```json\s*/g,'').replace(/```/g,'').trim();
+    const r=JSON.parse(content);
+
+    const trendEmoji=r.trend==='improving'?'\uD83D\uDCC8':r.trend==='declining'?'\uD83D\uDCC9':r.trend==='plateauing'?'\u27A1\uFE0F':'\uD83C\uDF31';
+    const trendColor=r.trend==='improving'?'var(--green)':r.trend==='declining'?'var(--red)':'var(--orange)';
+    const scoreColor=(r.weeklyScore||0)>=4?'var(--green)':(r.weeklyScore||0)>=2?'var(--orange)':'var(--red)';
+
+    el.innerHTML=`
+      <div style="padding:16px;background:rgba(176,107,255,0.04);border:1px solid rgba(176,107,255,0.15);border-radius:12px;text-align:left">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+          <div style="display:flex;align-items:center;gap:6px">
+            <span style="font-size:9px;padding:3px 8px;border-radius:10px;background:rgba(176,107,255,0.1);color:var(--purple);border:1px solid rgba(176,107,255,0.2);font-weight:700">PROGRESS MONITOR</span>
+            <span style="font-size:14px">${trendEmoji}</span>
+          </div>
+          <div style="font-size:16px;font-weight:800;color:${scoreColor}">${r.weeklyScore||'?'}/5</div>
+        </div>
+        <div style="font-size:13px;color:#ddd;font-weight:600;margin-bottom:10px;line-height:1.4">${esc(r.headline||'')}</div>
+        ${r.biggestWin?`<div style="font-size:11px;color:var(--green);padding:6px 8px;background:rgba(74,222,128,0.06);border-radius:6px;margin-bottom:6px">\u2B50 ${esc(r.biggestWin)}</div>`:''}
+        ${r.stuckOn?`<div style="font-size:11px;color:var(--orange);padding:6px 8px;background:rgba(255,163,107,0.06);border-radius:6px;margin-bottom:6px">\uD83D\uDD04 Stuck on: ${esc(r.stuckOn)}</div>`:''}
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:8px;font-size:10px;color:#777">
+          <div style="padding:6px;background:rgba(0,0,0,0.2);border-radius:6px">\uD83C\uDF99\uFE0F Fillers: ${esc(r.fillerTrend||'N/A')}</div>
+          <div style="padding:6px;background:rgba(0,0,0,0.2);border-radius:6px">\uD83D\uDCDD Content: ${esc(r.contentTrend||'N/A')}</div>
+        </div>
+        ${r.nextFocus?`<div style="margin-top:10px;padding:8px;background:rgba(107,223,255,0.06);border-radius:6px;border-left:3px solid var(--blue);font-size:11px;color:var(--blue)">\uD83C\uDFAF Next session: ${esc(r.nextFocus)}</div>`:''}
+      </div>`;
+  }catch(e){
+    el.innerHTML=`<div style="padding:10px;background:rgba(255,80,80,0.06);border:1px solid rgba(255,80,80,0.15);border-radius:10px;font-size:10px;color:#ff8888;text-align:center">Progress analysis unavailable</div>`;
+  }
 }
 
 // FIX: preserve custom question on retry
@@ -1078,6 +1288,8 @@ function renderHistory(){
 
     if(e.analysis&&(e.analysis.groqRepetition||e.analysis.groqConciseness||e.analysis.groqConfidence)){
       const parts=[];
+      if(e.analysis.groqContent)parts.push(`Content: ${e.analysis.groqContent}/5`);
+      if(e.analysis.groqStructure)parts.push(`Structure: ${e.analysis.groqStructure}/5`);
       if(e.analysis.groqEndingStrong!==null)parts.push(`Ending: ${e.analysis.groqEndingStrong?'\u2713':'\u2717'}`);
       if(e.analysis.groqRepetition)parts.push(`Repetition: ${e.analysis.groqRepetition}/5`);
       if(e.analysis.groqConciseness)parts.push(`Concise: ${e.analysis.groqConciseness}/5`);
@@ -1087,6 +1299,12 @@ function renderHistory(){
 
     if(e.analysis?.groqCoaching){
       expanded+=`<div style="font-size:10px;color:var(--green);margin-top:6px;padding:8px;background:rgba(74,222,128,0.05);border-radius:6px">\uD83D\uDCA1 ${esc(e.analysis.groqCoaching)}</div>`;
+    }
+    if(e.analysis?.groqKeyInsight){
+      expanded+=`<div style="font-size:10px;color:var(--blue);margin-top:4px;padding:6px 8px;background:rgba(107,223,255,0.05);border-radius:6px">\u2B50 Best moment: \u201C${esc(e.analysis.groqKeyInsight)}\u201D</div>`;
+    }
+    if(e.analysis?.groqBiggestGap){
+      expanded+=`<div style="font-size:10px;color:var(--orange);margin-top:4px;padding:6px 8px;background:rgba(255,163,107,0.05);border-radius:6px">\u26A0\uFE0F Gap: ${esc(e.analysis.groqBiggestGap)}</div>`;
     }
 
     if(e.analysis?.fillerWords?.length>0){
@@ -1333,6 +1551,10 @@ function generateExportText(range){
       if(aiParts.length)t+='AI: '+aiParts.join(' | ')+'\n';
       if(e.analysis.groqCoaching)t+=`Coaching: ${e.analysis.groqCoaching}\n`;
       if(e.analysis.groqContentNote)t+=`Content note: ${e.analysis.groqContentNote}\n`;
+      if(e.analysis.groqStructure)t+=`Structure: ${e.analysis.groqStructure}/5\n`;
+      if(e.analysis.groqKeyInsight)t+=`Best moment: "${e.analysis.groqKeyInsight}"\n`;
+      if(e.analysis.groqBiggestGap)t+=`Gap: ${e.analysis.groqBiggestGap}\n`;
+      if(e.analysis.groqRewrite)t+=`Rewrite suggestion: ${e.analysis.groqRewrite}\n`;
     }
     if(e.notes)t+=`Notes: ${e.notes}\n`;
     // FIX: full transcript in export (no 300-char limit)
