@@ -71,6 +71,7 @@ details summary{font-size:11px;color:#555;cursor:pointer;margin-bottom:8px}
     <input type="text" id="custom-q" placeholder="Or type your own question...">
   </div>
   <button class="btn" id="start-btn" onclick="startRecording()" style="margin-top:8px">&#x25CF; START RECORDING</button>
+  <button class="btn btn-ghost" id="drill-btn" onclick="startDrillMode()" style="margin-top:8px;color:var(--orange)">⚡ DRILL MODE (5 rounds)</button>
   <div id="camera-error" style="display:none;margin-top:12px;padding:12px;border-radius:10px;background:rgba(255,80,80,0.1);border:1px solid rgba(255,80,80,0.3);font-size:12px;color:#ff8888"></div>
   <div id="done-today" style="display:none;margin-top:12px;padding:12px;border-radius:10px;text-align:center;background:rgba(74,222,128,0.08);border:1px solid rgba(74,222,128,0.2);font-size:12px;color:#4ade80">&#x2713; Already logged today &#x2014; do extra reps anytime</div>
   <div class="nav">
@@ -269,8 +270,39 @@ const FILLER_WORDS = ["um","uh","like","right","yeah","er","erm","ah","oh",
   "definitely","certainly","probably","maybe","perhaps","anyway","anyways"];
 const SOFT_FILLERS = ["just","actually","really","so","well","obviously","clearly","definitely","probably","maybe"];
 
+const DRILL_SCENARIOS = {
+  0: [ // Land the ending
+    {prompt:"Summarise your last project in 2 sentences. Nail the final sentence.",timer:30},
+    {prompt:"Answer: What's your greatest strength? End on a strong, declarative statement.",timer:25},
+    {prompt:"Pitch your favourite app in 15 seconds. Last sentence must be powerful.",timer:20},
+    {prompt:"Say one thing you learned this week. Close with conviction.",timer:20},
+    {prompt:"Answer: Why this role? Your last 5 words must be deliberate.",timer:30}
+  ],
+  1: [ // Kill the fillers
+    {prompt:"Describe what you had for breakfast. Zero fillers allowed.",timer:20},
+    {prompt:"Explain your commute to work. Replace every filler with silence.",timer:25},
+    {prompt:"Tell me about your weekend plans. Pause instead of saying 'like' or 'um'.",timer:25},
+    {prompt:"Describe your desk setup. Every word must be intentional.",timer:20},
+    {prompt:"Explain how to make tea. No 'sort of', 'kind of', or 'basically'.",timer:20}
+  ],
+  2: [ // Make the point, stop
+    {prompt:"Why should we hire you? Answer in ONE sentence only.",timer:15},
+    {prompt:"What makes you different? Maximum 2 sentences. Then stop.",timer:20},
+    {prompt:"What did you learn at your last job? 15 seconds max. Then silence.",timer:15},
+    {prompt:"What's your biggest achievement? Say it. Stop. Don't elaborate.",timer:15},
+    {prompt:"Why this industry? One clear reason. Then close your mouth.",timer:15}
+  ],
+  3: [ // Sit in silence
+    {prompt:"Answer any question. After each sentence, count to 3 silently before the next.",timer:30},
+    {prompt:"Introduce yourself. Pause for 2 seconds between every point.",timer:30},
+    {prompt:"Describe a challenge you faced. Let the silence do the work after your answer.",timer:25},
+    {prompt:"What motivates you? Answer, then sit in 5 seconds of silence. Don't fill it.",timer:25},
+    {prompt:"Name one skill you're developing. Say it clearly. Then wait. Resist the urge to add more.",timer:20}
+  ]
+};
+
 let state = {entries:[],settings:{groqKey:"",notifEnabled:false,notifTime:"09:00",customQuestions:[]}};
-let recording = {active:false,timer:0,transcript:"",interim:"",pauses:[],lastSpeech:0,resultIndex:0};
+let recording = {active:false,timer:0,transcript:"",interim:"",pauses:[],lastSpeech:0,resultIndex:0,isDrill:false,drillIndex:0,drillHabitId:0,drillTimer:0,drillResults:[]};
 let mediaRecorder=null, stream=null, recognition=null, chunks=[], timerInterval=null, videoUrl=null, videoBlob=null;
 let currentAnalysis=null, manualScores={body:null,energy:null,confidence:null};
 let previousAttempt=null;
@@ -423,6 +455,248 @@ function showScreen(id){
   if(id==='home')renderHome();
   if(id==='history')renderHistory();
   if(id==='settings')renderSettings();
+}
+
+// =======================================
+// DRILL MODE
+// =======================================
+function startDrillMode(){
+  const h=todayHabit();
+  recording={active:false,timer:0,transcript:"",interim:"",pauses:[],lastSpeech:0,resultIndex:0,
+    isDrill:true,drillIndex:0,drillHabitId:h.id,drillTimer:0,drillResults:[]};
+  chunks=[];videoUrl=null;videoBlob=null;
+
+  // Show drill prompt
+  showDrillPrompt();
+}
+
+function showDrillPrompt(){
+  const drills=DRILL_SCENARIOS[recording.drillHabitId]||[];
+  if(recording.drillIndex>=drills.length){
+    showDrillSummary();
+    return;
+  }
+
+  const drill=drills[recording.drillIndex];
+  const h=HABITS[recording.drillHabitId];
+
+  const drillUI=`
+    <div id="rec-screen" style="position:fixed;top:0;left:0;right:0;bottom:0;background:#000;display:flex;flex-direction:column">
+      <div style="height:60%;position:relative;overflow:hidden;flex-shrink:0;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,${h.color}22,transparent)">
+        <div style="padding:40px;text-align:center">
+          <div style="font-size:48px;margin-bottom:16px">${h.emoji}</div>
+          <div style="font-size:13px;color:#555;margin-bottom:20px">DRILL ${recording.drillIndex+1}/5</div>
+          <div style="font-size:18px;color:#fff;font-weight:700;line-height:1.5;margin-bottom:30px">${esc(drill.prompt)}</div>
+          <div id="drill-timer-display" style="font-size:56px;font-weight:900;color:${h.color}">${drill.timer}</div>
+        </div>
+      </div>
+      <div style="flex:1;overflow-y:auto;padding:12px 16px;background:rgba(0,0,0,0.95);min-height:0">
+        <div id="live-transcript" style="font-size:13px;color:#ddd;line-height:1.5">
+          <span style="color:#555;font-style:italic">Get ready...</span>
+        </div>
+      </div>
+      <div style="padding:14px 16px;background:var(--bg);display:flex;justify-content:center;flex-shrink:0">
+        <button class="stop-btn" onclick="stopDrill()"><div class="stop-inner"></div></button>
+      </div>
+    </div>`;
+
+  document.getElementById('record').innerHTML=drillUI;
+  showScreen('record');
+
+  // Start drill after 3-second countdown
+  startDrillCountdown(drill.timer);
+}
+
+async function startDrillCountdown(timer){
+  const overlay=document.getElementById('countdown-overlay')||document.createElement('div');
+  if(!overlay.id){
+    overlay.id='countdown-overlay';
+    overlay.style.cssText='display:none;position:absolute;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.8);z-index:10;align-items:center;justify-content:center';
+    document.getElementById('rec-screen').appendChild(overlay);
+  }
+  const num=document.createElement('span');
+  num.id='countdown-num';
+  num.style.cssText='font-size:80px;font-weight:900;color:#fff';
+  overlay.innerHTML='';
+  overlay.appendChild(num);
+  overlay.style.display='flex';
+
+  for(let i=3;i>=1;i--){
+    num.textContent=i;
+    await new Promise(r=>setTimeout(r,1000));
+  }
+  num.textContent='Go!';
+  await new Promise(r=>setTimeout(r,500));
+  overlay.style.display='none';
+
+  startDrill(timer);
+}
+
+async function startDrill(timer){
+  recording.active=true;
+  recording.lastSpeech=Date.now();
+  recording.timer=0;
+  recording.drillTimer=timer;
+
+  try{
+    stream=await navigator.mediaDevices.getUserMedia({
+      video:{facingMode:"user",width:{ideal:1280},height:{ideal:720}},
+      audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true}
+    });
+  }catch(e){
+    alert('Camera access denied');
+    return;
+  }
+
+  const preview=document.getElementById('preview');
+  if(!preview){
+    const vid=document.createElement('video');
+    vid.id='preview';
+    vid.autoplay=true;
+    vid.playsinline=true;
+    vid.muted=true;
+    vid.style.cssText='position:absolute;top:50%;left:50%;transform:translate(-50%,-50%) scaleX(-1);min-width:100%;min-height:100%;width:auto;height:auto;object-fit:cover';
+    document.querySelector('[style*="height:60%"]')?.insertBefore(vid,document.querySelector('[style*="height:60%"]').firstChild);
+  }else{
+    preview.srcObject=stream;
+  }
+
+  const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+  if(SR){
+    recognition=new SR();
+    recognition.continuous=true;
+    recognition.interimResults=true;
+    recognition.lang='en-GB';
+
+    recognition.onresult=e=>{
+      let interim="";
+      for(let i=recording.resultIndex;i<e.results.length;i++){
+        if(e.results[i].isFinal){
+          const text=e.results[i][0].transcript;
+          if(text&&text.trim())recording.transcript+=text+" ";
+          recording.resultIndex=i+1;
+        }else{
+          interim+=e.results[i][0].transcript;
+        }
+      }
+      recording.interim=interim;
+      updateLiveTranscript();
+    };
+
+    try{recognition.start()}catch(e){}
+  }
+
+  const isIOS=/iPad|iPhone|iPod/.test(navigator.userAgent);
+  const mimePrefs=isIOS?["video/mp4","video/webm;codecs=vp8,opus","video/webm",""]:["video/webm;codecs=vp8,opus","video/webm","video/mp4",""];
+  let mime="";
+  for(const m of mimePrefs){if(!m||MediaRecorder.isTypeSupported(m)){mime=m;break}}
+  const recorderOpts=mime?{mimeType:mime}:{};
+  recorderOpts.audioBitsPerSecond=128000;
+  mediaRecorder=new MediaRecorder(stream,recorderOpts);
+  mediaRecorder.ondataavailable=e=>{if(e.data.size>0)chunks.push(e.data)};
+  mediaRecorder.onstop=()=>{
+    const blobType=mediaRecorder.mimeType||mime||'video/webm';
+    videoBlob=new Blob(chunks,{type:blobType});
+    videoUrl=URL.createObjectURL(videoBlob);
+  };
+  mediaRecorder.start(isIOS?3000:1000);
+
+  // Countdown timer
+  let remaining=timer;
+  const timerEl=document.getElementById('drill-timer-display');
+  timerInterval=setInterval(()=>{
+    remaining--;
+    if(timerEl)timerEl.textContent=remaining;
+    if(remaining<=0){
+      clearInterval(timerInterval);
+      stopDrill();
+    }
+  },1000);
+}
+
+function stopDrill(){
+  clearInterval(timerInterval);
+  recording.active=false;
+  if(mediaRecorder&&mediaRecorder.state!=='inactive')mediaRecorder.stop();
+  if(recognition)try{recognition.stop()}catch(e){}
+  if(stream)stream.getTracks().forEach(t=>t.stop());
+
+  setTimeout(()=>{
+    const text=recording.transcript;
+    if(text.trim().length>10){
+      const fillers=countFillers(text);
+      const trailing=analyzeTrailing(text);
+      const words=text.trim().split(/\s+/).filter(Boolean).length;
+      recording.drillResults.push({
+        drillIndex:recording.drillIndex,
+        prompt:DRILL_SCENARIOS[recording.drillHabitId][recording.drillIndex].prompt,
+        fillerCount:fillers.count,
+        words,
+        trailedOff:trailing.trailing,
+        transcript:text
+      });
+    }
+
+    recording.drillIndex++;
+    recording.transcript="";
+    recording.interim="";
+    recording.resultIndex=0;
+    chunks=[];
+    videoUrl=null;
+    videoBlob=null;
+
+    showDrillPrompt();
+  },500);
+}
+
+function showDrillSummary(){
+  const h=HABITS[recording.drillHabitId];
+  const results=recording.drillResults;
+
+  let summaryHTML=`<div class="container" style="padding:40px 16px">
+    <div style="text-align:center;margin-bottom:30px">
+      <div style="font-size:56px;margin-bottom:10px">${h.emoji}</div>
+      <h2 style="font-size:22px;font-weight:800;color:#fff;margin-bottom:8px">Drill Complete</h2>
+      <p style="font-size:13px;color:#666">5/5 rounds finished</p>
+    </div>
+
+    <div class="card">
+      <div class="label">DRILL RESULTS</div>`;
+
+  results.forEach((r,i)=>{
+    summaryHTML+=`<div style="padding:12px 0;border-bottom:1px solid rgba(255,255,255,0.06)">
+      <div style="font-size:11px;color:#888;margin-bottom:4px">Round ${i+1}</div>
+      <div style="font-size:10px;color:#777;margin-bottom:6px">${esc(r.prompt.substring(0,60))}...</div>
+      <div style="display:flex;gap:10px;font-size:10px">
+        <span style="color:${r.fillerCount>5?'var(--red)':r.fillerCount>2?'var(--orange)':'var(--green)'}">${r.fillerCount} fillers</span>
+        <span style="color:var(--dim)">${r.words}w</span>
+        <span style="color:${r.trailedOff?'var(--red)':'var(--green)'}">${r.trailedOff?'trailed':'landed'}</span>
+      </div>
+    </div>`;
+  });
+
+  summaryHTML+=`</div>
+    <button class="btn" onclick="logDrillSession()" style="background:${h.color};margin-top:16px">LOG DRILLS</button>
+    <button class="btn btn-ghost" onclick="resetAndHome()" style="margin-top:8px">BACK TO HOME</button>
+  </div>`;
+
+  document.getElementById('record').innerHTML=summaryHTML;
+}
+
+function logDrillSession(){
+  const entry={
+    date:today(),
+    habitId:recording.drillHabitId,
+    habit:HABITS[recording.drillHabitId].name,
+    type:"drill",
+    drillCount:recording.drillResults.length,
+    drillResults:recording.drillResults,
+    duration:recording.drillResults.reduce((a,r)=>a+30,0),
+    analysis:null
+  };
+  state.entries.push(entry);
+  save();
+  resetAndHome();
 }
 
 // =======================================
@@ -714,12 +988,28 @@ function stopRecording(){
     document.getElementById('session-notes').value='';
 
     if(text.trim().length>10){
-      const fillers=countFillers(text);
-      const trailing=analyzeTrailing(text);
-      const words=text.trim().split(/\s+/).filter(Boolean).length;
-      const wpm=dur>0?(words/dur)*60:0;
-      currentAnalysis={fillers,trailing,words,wpm,duration:dur,
-        pauses:recording.pauses,tooLong:dur>120,highlighted:highlightFillers(text),raw:text};
+      // Cleanup transcript first (shows status message)
+      const el=document.getElementById('groq-analysis');
+      const showCleanup=state.settings.groqKey;
+      if(showCleanup){
+        el.style.display='block';
+        el.innerHTML=`<div style="padding:12px;background:rgba(74,222,128,0.06);border:1px solid rgba(74,222,128,0.15);border-radius:10px;font-size:12px;color:var(--green)">🧹 Cleaning up transcript...</div>`;
+      }
+
+      // Run cleanup async, then proceed with analysis
+      (async ()=>{
+        const cleanText=await cleanupTranscript(text,currentSessionId);
+        if(currentSessionId!==thisSession)return;
+
+        const fillers=countFillers(cleanText);
+        const trailing=analyzeTrailing(cleanText);
+        const words=cleanText.trim().split(/\s+/).filter(Boolean).length;
+        const wpm=dur>0?(words/dur)*60:0;
+        currentAnalysis={fillers,trailing,words,wpm,duration:dur,
+          pauses:recording.pauses,tooLong:dur>120,highlighted:highlightFillers(cleanText),raw:cleanText};
+
+        updateAnalysisSection();
+      })();
     }else{currentAnalysis=null}
 
     renderResults();
@@ -828,7 +1118,10 @@ function updateAnalysisSection(){
   const fc=a.fillers.count;
   const sc=a.fillers.softCount||0;
   const fcColor=fc>5?'var(--red)':fc>2?'var(--orange)':'var(--green)';
-  const ec=a.trailing.trailing?'var(--red)':'var(--green)';
+
+  // Use AI assessment for ending if available, otherwise use auto-detect
+  const endingIsStrong=a.groq?.ending?.strong!==undefined?a.groq.ending.strong:!a.trailing.trailing;
+  const ec=endingIsStrong?'var(--green)':'var(--red)';
 
   document.getElementById('auto-analysis').style.display='block';
   document.getElementById('no-transcript').style.display='none';
@@ -837,7 +1130,7 @@ function updateAnalysisSection(){
     <div class="stat-box"><div class="stat-num" style="color:${fcColor}">${fc}</div><div class="stat-label">HARD FILLERS</div></div>
     <div class="stat-box"><div class="stat-num" style="color:${sc>8?'var(--orange)':'var(--dim)'}">${sc}</div><div class="stat-label">SOFT FILLERS</div></div>
     <div class="stat-box"><div class="stat-num">${a.words}</div><div class="stat-label">WORDS</div></div>
-    <div class="stat-box"><div class="stat-num" style="color:${ec}">${a.trailing.trailing?'Weak':'Clean'}</div><div class="stat-label">ENDING</div></div>
+    <div class="stat-box"><div class="stat-num" style="color:${ec}">${endingIsStrong?'Strong':'Weak'}</div><div class="stat-label">ENDING</div></div>
     <div class="stat-box"><div class="stat-num">${Math.round(a.wpm)}</div><div class="stat-label">WPM</div></div>
     <div class="stat-box"><div class="stat-num">${a.pauses.length}</div><div class="stat-label">PAUSES</div></div>`;
 
@@ -923,13 +1216,16 @@ async function runWhisperTranscription(audioBlob,duration,sessionId,question){
     const isHallucination=WHISPER_HALLUCINATIONS.some(h=>whisperText.toLowerCase().includes(h));
 
     if(whisperText.trim().length>10&&!isHallucination){
-      // Whisper gave a real transcript — update analysis with punctuated version
-      const fillers=countFillers(whisperText);
-      const trailing=analyzeTrailing(whisperText);
-      const words=whisperText.trim().split(/\s+/).filter(Boolean).length;
+      // Whisper gave a real transcript — cleanup and update analysis
+      const cleanedWhisper=await cleanupTranscript(whisperText,sessionId);
+      if(currentSessionId!==sessionId)return;
+
+      const fillers=countFillers(cleanedWhisper);
+      const trailing=analyzeTrailing(cleanedWhisper);
+      const words=cleanedWhisper.trim().split(/\s+/).filter(Boolean).length;
       const wpm=duration>0?(words/duration)*60:0;
       currentAnalysis={fillers,trailing,words,wpm,duration,
-        pauses:recording.pauses,tooLong:duration>120,highlighted:highlightFillers(whisperText),raw:whisperText,
+        pauses:recording.pauses,tooLong:duration>120,highlighted:highlightFillers(cleanedWhisper),raw:cleanedWhisper,
         whisperUsed:true};
 
       if(currentSessionId!==sessionId)return;
@@ -961,6 +1257,40 @@ async function runWhisperTranscription(audioBlob,duration,sessionId,question){
   }catch(e){
     // Whisper failed — browser transcript coaching is already running, so just log
     console.log('Whisper failed:',e.message);
+  }
+}
+
+// =======================================
+// TRANSCRIPT CLEANUP (LLM)
+// =======================================
+async function cleanupTranscript(rawText, sessionId){
+  if(currentSessionId !== sessionId) return rawText;
+  if(!state.settings.groqKey) return rawText;
+  
+  try{
+    const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json', 'Authorization': `Bearer ${state.settings.groqKey}`},
+      body: JSON.stringify({
+        model: 'llama-3.3-70b-versatile',
+        messages: [{
+          role: 'system',
+          content: `You are a transcript cleanup tool. Fix obvious speech recognition errors in this interview practice transcript. Rules: 1) KEEP all filler words exactly as-is (um, uh, er, like, you know, sort of, kind of, I guess, basically, I mean, I think, right, yeah, so yeah). 2) Only fix words that are clearly misrecognized by speech-to-text (e.g. 'timer' → 'time I', 'dead' → 'did', 'air layer' → 'AI layer'). 3) Keep the speaker's actual grammar, sentence structure, and phrasing — do NOT rewrite or improve their English. 4) Add basic punctuation (commas, full stops) where natural pauses occur. 5) Return ONLY the cleaned transcript, nothing else.`
+        },
+        {role: 'user', content: rawText}],
+        temperature: 0.1,
+        max_tokens: 1500
+      })
+    });
+    
+    if(!res.ok) return rawText;
+    if(currentSessionId !== sessionId) return rawText;
+    
+    const data = await res.json();
+    return data.choices[0]?.message?.content?.trim() || rawText;
+  }catch(e){
+    console.log('Transcript cleanup failed:', e.message);
+    return rawText;
   }
 }
 
@@ -1088,7 +1418,8 @@ JSON format:
   }catch(e){
     if(currentSessionId!==sessionId)return;
     el.innerHTML=`<div style="padding:12px;background:rgba(255,80,80,0.08);border:1px solid rgba(255,80,80,0.2);border-radius:10px;font-size:11px;color:#ff8888">
-      AI analysis failed: ${esc((e.message||'Check your API key').substring(0,100))}</div>`;
+      AI analysis failed: ${esc((e.message||'Check your API key').substring(0,100))}<br>
+      <button class="btn btn-ghost" onclick="runGroqAnalysis('${text.replace(/'/g,"\\'")}',${duration},'${(question||'').replace(/'/g,"\\'")}',${sessionId})" style="margin-top:8px;font-size:10px">Retry</button></div>`;
   }
 }
 
@@ -1359,25 +1690,30 @@ function renderHistory(){
   empty.style.display='none';
 
   if(state.entries.length>=3){
-    const last7=state.entries.slice(-7);
-    const avgF=(last7.reduce((a,e)=>a+(e.analysis?.fillerCount||0),0)/last7.length).toFixed(1);
-    const avgSF=(last7.reduce((a,e)=>a+(e.analysis?.softFillerCount||0),0)/last7.length).toFixed(1);
-    const avgD=Math.round(last7.reduce((a,e)=>a+(e.duration||0),0)/last7.length);
-    const trails=last7.filter(e=>e.analysis?.trailedOff).length;
-    const confEntries=last7.filter(e=>e.analysis?.groqConfidence);
-    const avgConf=confEntries.length>0?(confEntries.reduce((a,e)=>a+e.analysis.groqConfidence,0)/confEntries.length).toFixed(1):'\u2014';
-    summary.style.display='block';
-    summary.innerHTML=`
-      <div class="label">LAST ${last7.length} SESSIONS</div>
-      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:8px">
-        <div class="stat-box"><div class="stat-num" style="font-size:18px;color:${avgF>4?'var(--red)':avgF>2?'var(--orange)':'var(--green)'}">${avgF}</div><div class="stat-label">AVG FILLERS</div></div>
-        <div class="stat-box"><div class="stat-num" style="font-size:18px">${avgD}s</div><div class="stat-label">AVG TIME</div></div>
-        <div class="stat-box"><div class="stat-num" style="font-size:18px;color:${trails>3?'var(--red)':'var(--green)'}">${trails}/${last7.length}</div><div class="stat-label">TRAILED</div></div>
-      </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
-        <div class="stat-box"><div class="stat-num" style="font-size:18px;color:var(--dim)">${avgSF}</div><div class="stat-label">AVG SOFT</div></div>
-        <div class="stat-box"><div class="stat-num" style="font-size:18px;color:${avgConf!=='\u2014'&&avgConf>=4?'var(--green)':avgConf!=='\u2014'&&avgConf>=2.5?'var(--orange)':'var(--dim)'}">${avgConf}</div><div class="stat-label">AI CONFIDENCE</div></div>
-      </div>`;
+    const last7=state.entries.filter(e=>!e.type||e.type!=='drill').slice(-7);
+    if(last7.length>0){
+      const avgF=(last7.reduce((a,e)=>a+(e.analysis?.fillerCount||0),0)/last7.length).toFixed(1);
+      const avgSF=(last7.reduce((a,e)=>a+(e.analysis?.softFillerCount||0),0)/last7.length).toFixed(1);
+      const avgD=Math.round(last7.reduce((a,e)=>a+(e.duration||0),0)/last7.length);
+      const trails=last7.filter(e=>e.analysis?.trailedOff).length;
+      const confEntries=last7.filter(e=>e.analysis?.groqConfidence);
+      const avgConf=confEntries.length>0?(confEntries.reduce((a,e)=>a+e.analysis.groqConfidence,0)/confEntries.length).toFixed(1):'\u2014';
+      const contentEntries=last7.filter(e=>e.analysis?.groqContent);
+      const avgContent=contentEntries.length>0?(contentEntries.reduce((a,e)=>a+e.analysis.groqContent,0)/contentEntries.length).toFixed(1):'\u2014';
+      summary.style.display='block';
+      summary.innerHTML=`
+        <div class="label">LAST ${last7.length} INTERVIEW SESSIONS</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:8px">
+          <div class="stat-box"><div class="stat-num" style="font-size:18px;color:${avgF>4?'var(--red)':avgF>2?'var(--orange)':'var(--green)'}">${avgF}</div><div class="stat-label">AVG FILLERS</div></div>
+          <div class="stat-box"><div class="stat-num" style="font-size:18px">${avgD}s</div><div class="stat-label">AVG TIME</div></div>
+          <div class="stat-box"><div class="stat-num" style="font-size:18px;color:${trails>3?'var(--red)':'var(--green)'}">${trails}/${last7.length}</div><div class="stat-label">TRAILED</div></div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">
+          <div class="stat-box"><div class="stat-num" style="font-size:18px;color:var(--dim)">${avgSF}</div><div class="stat-label">AVG SOFT</div></div>
+          <div class="stat-box"><div class="stat-num" style="font-size:18px;color:${avgConf!=='\u2014'&&avgConf>=4?'var(--green)':avgConf!=='\u2014'&&avgConf>=2.5?'var(--orange)':'var(--dim)'}">${avgConf}</div><div class="stat-label">AI CONFIDENCE</div></div>
+          <div class="stat-box"><div class="stat-num" style="font-size:18px;color:${avgContent!=='\u2014'&&avgContent>=4?'var(--green)':avgContent!=='\u2014'&&avgContent>=2.5?'var(--orange)':'var(--dim)'}">${avgContent}</div><div class="stat-label">CONTENT</div></div>
+        </div>`;
+    }else{summary.style.display='none'}
   }else{summary.style.display='none'}
 
   list.innerHTML=[...state.entries].reverse().map((e,idx)=>{
