@@ -662,12 +662,44 @@ function stopRecording(){
 
     // Capture session id to cancel stale async callbacks
     const thisSession=currentSessionId;
-    if(state.settings.groqKey){
+    const question=document.getElementById('custom-q').value.trim()||pickQuestion();
+
+    if(state.settings.groqKey&&text.trim().length>10){
+      // IMMEDIATELY run AI coaching on browser transcript (don't wait for Whisper)
+      const el=document.getElementById('groq-analysis');
+      el.style.display='block';
+      el.innerHTML=`<div style="padding:16px;background:rgba(74,222,128,0.06);border:1px solid rgba(74,222,128,0.15);border-radius:12px;text-align:center">
+        <div style="font-size:13px;color:var(--green);font-weight:700;margin-bottom:8px">\uD83E\uDDE0 Analysing your answer...</div>
+        <div style="font-size:11px;color:#555">Processing transcript and generating personalised coaching</div>
+        <div style="margin-top:10px;height:3px;background:rgba(255,255,255,0.06);border-radius:2px;overflow:hidden"><div style="height:100%;background:var(--green);width:30%;animation:loadbar 2s ease-in-out infinite;border-radius:2px"></div></div>
+      </div>`;
+      // Add loading animation
+      if(!document.getElementById('loadbar-style')){
+        const style=document.createElement('style');
+        style.id='loadbar-style';
+        style.textContent='@keyframes loadbar{0%{width:10%;margin-left:0}50%{width:40%;margin-left:30%}100%{width:10%;margin-left:90%}}';
+        document.head.appendChild(style);
+      }
+
+      // Run coaching immediately on browser transcript
+      runGroqAnalysis(text,dur,question,thisSession);
+
+      // In parallel, try Whisper for a better transcript (will re-run coaching if successful)
       const waitForBlob=setInterval(()=>{
         if(currentSessionId!==thisSession){clearInterval(waitForBlob);return}
         if(videoBlob){
           clearInterval(waitForBlob);
-          runWhisperTranscription(videoBlob,dur,thisSession);
+          runWhisperTranscription(videoBlob,dur,thisSession,question);
+        }
+      },200);
+      setTimeout(()=>clearInterval(waitForBlob),15000);
+    }else if(state.settings.groqKey){
+      // No browser transcript — try Whisper alone (might pick up audio the browser missed)
+      const waitForBlob=setInterval(()=>{
+        if(currentSessionId!==thisSession){clearInterval(waitForBlob);return}
+        if(videoBlob){
+          clearInterval(waitForBlob);
+          runWhisperTranscription(videoBlob,dur,thisSession,question);
         }
       },200);
       setTimeout(()=>clearInterval(waitForBlob),15000);
@@ -770,7 +802,7 @@ function updateAnalysisSection(){
 
   document.getElementById('transcript-view').textContent=a.highlighted;
   document.getElementById('duration-warn').style.display=a.tooLong?'block':'none';
-  document.getElementById('groq-analysis').style.display='none';
+  // Don't hide groq-analysis here — it may be showing coaching or loading state
   renderImprovementTips();
 }
 
@@ -787,11 +819,13 @@ function setScore(key,val){
 // =======================================
 // WHISPER TRANSCRIPTION
 // =======================================
-async function runWhisperTranscription(audioBlob,duration,sessionId){
-  if(currentSessionId!==sessionId)return; // FIX: bail if session changed
-  const el=document.getElementById('groq-analysis');
-  el.style.display='block';
-  el.innerHTML=`<div style="padding:12px;background:rgba(74,222,128,0.06);border:1px solid rgba(74,222,128,0.15);border-radius:10px;font-size:12px;color:var(--green)">\uD83C\uDF99\uFE0F Transcribing with Whisper...</div>`;
+async function runWhisperTranscription(audioBlob,duration,sessionId,question){
+  if(currentSessionId!==sessionId)return;
+
+  // Whisper runs in background — coaching is already running on browser transcript
+  // Only update if Whisper gives a genuinely better result (not hallucination)
+  const WHISPER_HALLUCINATIONS=['subtitles by','amara.org','subscribe','thank you for watching',
+    'please subscribe','like and subscribe','thanks for watching'];
 
   try{
     const formData=new FormData();
@@ -800,7 +834,7 @@ async function runWhisperTranscription(audioBlob,duration,sessionId){
     formData.append('file',audioFile);
     formData.append('model','whisper-large-v3');
     formData.append('language','en');
-    formData.append('response_format','json');
+    formData.append('response_format','verbose_json');
     formData.append('prompt','Um, uh, um, er, erm, ah, uh, like, you know, sort of, kind of, I guess, basically, right, yeah, so yeah, I mean, honestly, actually, I think, and stuff, um, uh. Interview practice recording. Transcribe every single word exactly as spoken. Keep ALL hesitations: um, uh, er, erm, ah. Keep ALL filler words: like, you know, sort of, kind of, basically, I guess, I mean, right, yeah, so yeah. Keep ALL false starts and repeated words. Never clean up or remove any disfluencies. This is for speech coaching \u2014 accuracy of hesitations matters more than readability.');
 
     const res=await fetch('https://api.groq.com/openai/v1/audio/transcriptions',{
@@ -810,12 +844,16 @@ async function runWhisperTranscription(audioBlob,duration,sessionId){
     });
 
     if(!res.ok){const err=await res.text();throw new Error(err)}
-    if(currentSessionId!==sessionId)return; // FIX: check again after await
+    if(currentSessionId!==sessionId)return;
 
     const data=await res.json();
     const whisperText=data.text||'';
 
-    if(whisperText.trim().length>10){
+    // Check for Whisper hallucinations (common when audio is poor)
+    const isHallucination=WHISPER_HALLUCINATIONS.some(h=>whisperText.toLowerCase().includes(h));
+
+    if(whisperText.trim().length>10&&!isHallucination){
+      // Whisper gave a real transcript — update analysis with punctuated version
       const fillers=countFillers(whisperText);
       const trailing=analyzeTrailing(whisperText);
       const words=whisperText.trim().split(/\s+/).filter(Boolean).length;
@@ -825,8 +863,9 @@ async function runWhisperTranscription(audioBlob,duration,sessionId){
         whisperUsed:true};
 
       if(currentSessionId!==sessionId)return;
-      // FIX: use updateAnalysisSection instead of full renderResults to preserve manual scores
       updateAnalysisSection();
+
+      // Add whisper badge
       const badge=document.getElementById('auto-analysis');
       if(badge){
         const existing=badge.querySelector('.whisper-badge');
@@ -834,25 +873,21 @@ async function runWhisperTranscription(audioBlob,duration,sessionId){
           const b=document.createElement('div');
           b.className='whisper-badge';
           b.style.cssText='font-size:9px;padding:6px 10px;border-radius:10px;background:rgba(74,222,128,0.08);color:var(--green);border:1px solid rgba(74,222,128,0.2);display:block;margin-bottom:12px;line-height:1.5';
-          b.innerHTML=`\u2713 WHISPER V3 TRANSCRIPT<br><span style="color:#888;font-size:9px">${esc(whisperText.substring(0,80))}${whisperText.length>80?'...':''}</span>`;
+          b.innerHTML=`\u2713 WHISPER V3 TRANSCRIPT (with punctuation)<br><span style="color:#888;font-size:9px">${esc(whisperText.substring(0,80))}${whisperText.length>80?'...':''}</span>`;
           badge.insertBefore(b,badge.children[1]);
         }
       }
-    }else{
-      el.innerHTML=`<div style="padding:12px;background:rgba(255,163,107,0.08);border:1px solid rgba(255,163,107,0.2);border-radius:10px;font-size:11px;color:var(--orange)">\u26A0\uFE0F Whisper returned: "${esc(whisperText||'(empty)')}". Using browser transcript instead.</div>`;
-    }
 
-    if(currentSessionId!==sessionId)return;
-    el.innerHTML=`<div style="padding:12px;background:rgba(74,222,128,0.06);border:1px solid rgba(74,222,128,0.15);border-radius:10px;font-size:12px;color:var(--green)">\uD83E\uDDE0 Running AI coaching analysis...</div>`;
-    await runGroqAnalysis(whisperText||recording.transcript,duration,document.getElementById('custom-q').value.trim()||pickQuestion(),sessionId);
+      // Re-run coaching with the better Whisper transcript (replaces browser-transcript coaching)
+      await runGroqAnalysis(whisperText,duration,question,sessionId);
+    }else{
+      // Whisper hallucinated or returned junk — keep the browser transcript coaching (already running)
+      console.log('Whisper skipped (hallucination or empty):',whisperText.substring(0,50));
+    }
 
   }catch(e){
-    if(currentSessionId!==sessionId)return;
-    el.innerHTML=`<div style="padding:12px;background:rgba(255,80,80,0.08);border:1px solid rgba(255,80,80,0.2);border-radius:10px;font-size:11px;color:#ff8888">
-      Whisper transcription failed: ${esc((e.message||'Check API key').substring(0,100))}</div>`;
-    if(currentAnalysis){
-      await runGroqAnalysis(recording.transcript,duration,document.getElementById('custom-q').value.trim()||pickQuestion(),sessionId);
-    }
+    // Whisper failed — browser transcript coaching is already running, so just log
+    console.log('Whisper failed:',e.message);
   }
 }
 
