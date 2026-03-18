@@ -468,7 +468,8 @@ async function startRecording(){
 
   try{
     stream=await navigator.mediaDevices.getUserMedia({
-      video:{facingMode:"user",width:{ideal:1280},height:{ideal:720}},audio:true
+      video:{facingMode:"user",width:{ideal:1280},height:{ideal:720}},
+      audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true,sampleRate:{ideal:44100}}
     });
   }catch(e){
     document.getElementById('camera-error').textContent=e.message||'Camera access denied. Check browser settings.';
@@ -501,19 +502,26 @@ async function startRecording(){
   recording.lastSpeech=Date.now();
   document.getElementById('live-transcript').innerHTML='<span style="color:#555;font-style:italic">Start speaking...</span>';
 
-  // Media recorder
-  const mimes=["video/webm;codecs=vp8,opus","video/webm","video/mp4",""];
+  // Media recorder — iOS Safari needs mp4, others prefer webm
+  const isIOS=/iPad|iPhone|iPod/.test(navigator.userAgent)||
+    (navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
+  const mimePrefs=isIOS?
+    ["video/mp4","video/webm;codecs=vp8,opus","video/webm",""]:
+    ["video/webm;codecs=vp8,opus","video/webm","video/mp4",""];
   let mime="";
-  for(const m of mimes){if(!m||MediaRecorder.isTypeSupported(m)){mime=m;break}}
-  mediaRecorder=new MediaRecorder(stream,mime?{mimeType:mime}:{});
+  for(const m of mimePrefs){if(!m||MediaRecorder.isTypeSupported(m)){mime=m;break}}
+  const recorderOpts=mime?{mimeType:mime}:{};
+  // Add audioBitsPerSecond for better Whisper compatibility
+  recorderOpts.audioBitsPerSecond=128000;
+  mediaRecorder=new MediaRecorder(stream,recorderOpts);
   mediaRecorder.ondataavailable=e=>{if(e.data.size>0)chunks.push(e.data)};
   mediaRecorder.onstop=()=>{
-    videoBlob=new Blob(chunks,{type:mediaRecorder.mimeType||'video/webm'});
+    const blobType=mediaRecorder.mimeType||mime||'video/webm';
+    videoBlob=new Blob(chunks,{type:blobType});
     videoUrl=URL.createObjectURL(videoBlob);
     const container=document.getElementById('video-container');
     if(container){
       container.style.display='block';
-      // FIX: no muted attr on playback video, add webkit-playsinline for iOS audio
       container.innerHTML=`
         <div style="transform:scaleX(-1);border-radius:12px;overflow:hidden">
           <video id="vid-playback" controls playsinline webkit-playsinline src="${videoUrl}" style="width:100%;display:block"></video>
@@ -521,24 +529,32 @@ async function startRecording(){
         <div style="font-size:10px;color:#444;text-align:center;margin-top:6px">Watch back \u2014 check body language, posture, eye contact</div>`;
     }
   };
-  mediaRecorder.start(1000);
+  // Use larger timeslice on iOS to avoid fragmented chunks
+  mediaRecorder.start(isIOS?3000:1000);
 
-  // Speech recognition
+  // Speech recognition — robust setup for iOS Safari + Chrome
   const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
   if(SR){
     recognition=new SR();
     recognition.continuous=true;
     recognition.interimResults=true;
     recognition.lang='en-GB';
+    recognition.maxAlternatives=1;
+
+    // Track recognition restarts to handle resultIndex correctly
+    let recognitionGeneration=0;
+
     recognition.onresult=e=>{
       const now=Date.now();
       const gap=now-recording.lastSpeech;
       if(gap>1500&&recording.lastSpeech>0)recording.pauses.push(gap/1000);
       recording.lastSpeech=now;
       let interim="";
+      // Process ALL results from current index to end
       for(let i=recording.resultIndex;i<e.results.length;i++){
         if(e.results[i].isFinal){
-          recording.transcript+=e.results[i][0].transcript+" ";
+          const text=e.results[i][0].transcript;
+          if(text&&text.trim())recording.transcript+=text+" ";
           recording.resultIndex=i+1;
         }else{
           interim+=e.results[i][0].transcript;
@@ -547,15 +563,52 @@ async function startRecording(){
       recording.interim=interim;
       updateLiveTranscript();
     };
-    recognition.onend=()=>{if(recording.active){recording.resultIndex=0;try{recognition.start()}catch(e){}}};
-    // FIX: show feedback on mic errors instead of silently swallowing
+
+    recognition.onend=()=>{
+      if(recording.active){
+        // Recognition timed out or was interrupted — restart immediately
+        recognitionGeneration++;
+        recording.resultIndex=0; // Fresh results array on new recognition session
+        recording.interim=""; // Clear stale interim
+        // Small delay before restart to avoid rapid restart loops
+        setTimeout(()=>{
+          if(recording.active){
+            try{recognition.start()}catch(e){
+              console.log('Recognition restart failed:',e.message);
+            }
+          }
+        },100);
+      }
+    };
+
     recognition.onerror=(e)=>{
+      console.log('Speech recognition error:',e.error);
       if(e.error==='not-allowed'||e.error==='service-not-allowed'){
         document.getElementById('live-transcript').innerHTML=
           '<span style="color:#ff8888;font-style:italic">Microphone access lost. Transcript may be incomplete.</span>';
+      }else if(e.error==='network'){
+        // Network error — common on iOS, try restart
+        if(recording.active){
+          setTimeout(()=>{
+            if(recording.active){try{recognition.start()}catch(ex){}}
+          },500);
+        }
+      }else if(e.error==='no-speech'){
+        // No speech detected for a while — this is normal, recognition will restart via onend
+      }else if(e.error==='aborted'){
+        // Aborted — try restart if still recording
+        if(recording.active){
+          setTimeout(()=>{
+            if(recording.active){
+              recording.resultIndex=0;
+              try{recognition.start()}catch(ex){}
+            }
+          },200);
+        }
       }
     };
-    try{recognition.start()}catch(e){}
+
+    try{recognition.start()}catch(e){console.log('Initial recognition start failed:',e.message)}
   }
 
   // Timer with colour warnings at 90s and 120s
@@ -578,38 +631,40 @@ async function startRecording(){
 
 function updateLiveTranscript(){
   const el=document.getElementById('live-transcript');
+  if(!el)return;
   if(recording.transcript||recording.interim){
+    // Auto-scroll to bottom of transcript
     el.innerHTML=`<span>${esc(recording.transcript)}</span><span style="color:#888">${esc(recording.interim)}</span>`;
+    el.scrollTop=el.scrollHeight;
   }
 }
 
 function stopRecording(){
-  // FIX: grace period — keep recognition alive briefly to capture final words
+  // Step 1: Stop the timer and prevent recognition from auto-restarting
   recording.active=false;
   clearInterval(timerInterval);
 
-  // Stop media recorder and camera immediately
+  // Step 2: Stop media recorder (but keep audio stream alive for recognition!)
   if(mediaRecorder&&mediaRecorder.state!=='inactive')mediaRecorder.stop();
-  if(stream)stream.getTracks().forEach(t=>t.stop());
 
-  // Show a brief "processing" state
+  // Step 3: Visual feedback
   const stopBtn=document.querySelector('.stop-btn');
   if(stopBtn)stopBtn.style.opacity='0.3';
   const liveEl=document.getElementById('live-transcript');
-  if(liveEl&&recording.transcript){
-    liveEl.innerHTML+=`<div style="color:#555;font-size:11px;margin-top:6px;font-style:italic">Processing final words...</div>`;
+  if(liveEl){
+    liveEl.innerHTML+=`<div style="color:var(--green);font-size:11px;margin-top:6px;font-style:italic">\u23F3 Capturing final words...</div>`;
   }
 
-  // Give speech recognition a grace period to deliver final results
-  const gracePeriod=2500; // ms to wait for final speech results
-  const transcriptBefore=recording.transcript;
-  let graceTimer=setTimeout(()=>{finishStop()},gracePeriod);
+  // Step 4: Grace period — keep recognition alive to capture final words
+  // The audio stream stays alive so recognition can still hear the mic
+  const GRACE_MAX=3500; // max grace period
+  const GRACE_AFTER_LAST_WORD=1500; // time after last word before finishing
+  let graceTimer=setTimeout(()=>{finishStop()},GRACE_MAX);
+  let gotNewWords=false;
 
-  // If we get new final results during grace, reset the timer
-  const origOnResult=recognition?recognition.onresult:null;
   if(recognition){
+    // Keep the onresult handler active to capture final words
     recognition.onresult=e=>{
-      // Process results same as before
       const now=Date.now();
       const gap=now-recording.lastSpeech;
       if(gap>1500&&recording.lastSpeech>0)recording.pauses.push(gap/1000);
@@ -617,7 +672,8 @@ function stopRecording(){
       let interim="";
       for(let i=recording.resultIndex;i<e.results.length;i++){
         if(e.results[i].isFinal){
-          recording.transcript+=e.results[i][0].transcript+" ";
+          const text=e.results[i][0].transcript;
+          if(text&&text.trim()){recording.transcript+=text+" ";gotNewWords=true}
           recording.resultIndex=i+1;
         }else{
           interim+=e.results[i][0].transcript;
@@ -625,23 +681,32 @@ function stopRecording(){
       }
       recording.interim=interim;
       updateLiveTranscript();
-      // Reset grace timer — more words coming
+      // Got more words — extend grace, but don't exceed GRACE_MAX
       clearTimeout(graceTimer);
-      graceTimer=setTimeout(()=>{finishStop()},1500);
+      graceTimer=setTimeout(()=>{finishStop()},GRACE_AFTER_LAST_WORD);
     };
-    // Also catch the end event during grace period
+    // When recognition ends naturally during grace, wait a moment then finish
     recognition.onend=()=>{
-      // Recognition ended naturally, finish after short delay for any pending results
+      // Don't restart — we're in grace period
+      // Give 800ms for any pending result events to fire
       clearTimeout(graceTimer);
-      graceTimer=setTimeout(()=>{finishStop()},500);
+      graceTimer=setTimeout(()=>{finishStop()},800);
     };
+  }else{
+    // No recognition available — finish immediately
+    clearTimeout(graceTimer);
+    setTimeout(()=>{finishStop()},300);
   }
 
   let finished=false;
   function finishStop(){
     if(finished)return;
     finished=true;
+    clearTimeout(graceTimer);
+
+    // NOW stop recognition and audio stream
     if(recognition)try{recognition.stop()}catch(e){}
+    if(stream)stream.getTracks().forEach(t=>t.stop());
 
     const text=recording.transcript;
     const dur=recording.timer;
@@ -829,7 +894,12 @@ async function runWhisperTranscription(audioBlob,duration,sessionId,question){
 
   try{
     const formData=new FormData();
-    const ext=audioBlob.type.includes('mp4')?'mp4':'webm';
+    // Detect correct file extension from blob MIME type for Whisper compatibility
+    const blobType=(audioBlob.type||'').toLowerCase();
+    let ext='webm';
+    if(blobType.includes('mp4')||blobType.includes('m4a'))ext='mp4';
+    else if(blobType.includes('ogg'))ext='ogg';
+    else if(blobType.includes('wav'))ext='wav';
     const audioFile=new File([audioBlob],`recording.${ext}`,{type:audioBlob.type||'video/webm'});
     formData.append('file',audioFile);
     formData.append('model','whisper-large-v3');
@@ -863,6 +933,9 @@ async function runWhisperTranscription(audioBlob,duration,sessionId,question){
         whisperUsed:true};
 
       if(currentSessionId!==sessionId)return;
+      // Show the analysis section (may have been hidden if browser transcript was empty)
+      document.getElementById('auto-analysis').style.display='block';
+      document.getElementById('no-transcript').style.display='none';
       updateAnalysisSection();
 
       // Add whisper badge
